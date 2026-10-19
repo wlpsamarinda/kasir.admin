@@ -930,31 +930,24 @@
           </div>
         </div>
 
+        ${!isKasir ? `
+        <div class="row g-3 mb-4">
+          ${showEntrance ? unitWidgetCard_('masuk', 'Loket Masuk', 'col-md-4') : ''}
+          ${showRide ? unitWidgetCard_('wahana', 'Loket Wahana', 'col-md-4') : ''}
+          ${showResto ? unitWidgetCard_('resto', 'Resto', 'col-md-4') : ''}
+        </div>` : ''}
+
         ${showVisitors ? `
         <div class="card p-3 shadow-sm mb-4" id="visitor-panel" style="border-left:4px solid #0284c7;">
-          <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+          <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-1">
             <h6 class="mb-0 fw-bold"><i class="fa-solid fa-people-group me-2 text-primary"></i>Kontrol Pengunjung <span class="small text-muted fw-normal">(total Qty penjualan kategori Tiket Masuk)</span></h6>
-            <div class="d-flex flex-wrap align-items-center gap-2">
-              <div class="btn-group btn-group-sm" role="group" id="vs-period-group">
-                <button type="button" class="btn btn-outline-primary active" data-p="day" onclick="setVisitorPeriod('day')">Harian</button>
-                <button type="button" class="btn btn-outline-primary" data-p="week" onclick="setVisitorPeriod('week')">Mingguan</button>
-                <button type="button" class="btn btn-outline-primary" data-p="month" onclick="setVisitorPeriod('month')">Bulanan</button>
-                <button type="button" class="btn btn-outline-primary" data-p="year" onclick="setVisitorPeriod('year')">Tahunan</button>
-              </div>
-              <div class="btn-group btn-group-sm">
-                <button type="button" class="btn btn-outline-secondary" onclick="shiftVisitorPeriod(-1)" title="Sebelumnya"><i class="fa-solid fa-chevron-left"></i></button>
-                <button type="button" class="btn btn-outline-secondary" onclick="setVisitorDate(todayStr())">Hari Ini</button>
-                <button type="button" class="btn btn-outline-secondary" onclick="shiftVisitorPeriod(1)" title="Berikutnya"><i class="fa-solid fa-chevron-right"></i></button>
-              </div>
-              <input type="date" id="vs-date" class="form-control form-control-sm" style="width:auto" onchange="setVisitorDate(this.value)">
-            </div>
+            <div class="small text-muted" id="vs-label">Memuat...</div>
           </div>
-          <div class="small text-muted mb-2" id="vs-label">Memuat...</div>
-          <div class="row g-3 mb-3">
+          <div class="row g-3 my-1 mb-3">
             <div class="col-6 col-lg-3"><div class="border rounded p-2 h-100"><div class="small text-muted text-uppercase">Total Pengunjung</div><div class="fs-3 fw-bold text-primary" id="vs-total">-</div><div class="small" id="vs-change"></div></div></div>
             <div class="col-6 col-lg-3"><div class="border rounded p-2 h-100"><div class="small text-muted text-uppercase">Rata-rata / Hari</div><div class="fs-4 fw-bold" id="vs-avg">-</div></div></div>
-            <div class="col-6 col-lg-3"><div class="border rounded p-2 h-100"><div class="small text-muted text-uppercase">Puncak Kunjungan</div><div class="fs-4 fw-bold" id="vs-peak">-</div><div class="small text-muted" id="vs-peak-label"></div></div></div>
-            <div class="col-6 col-lg-3"><div class="border rounded p-2 h-100"><div class="small text-muted text-uppercase" id="vs-prev-title">Periode Sebelumnya</div><div class="fs-4 fw-bold text-secondary" id="vs-prev">-</div></div></div>
+            <div class="col-6 col-lg-3"><div class="border rounded p-2 h-100"><div class="small text-muted text-uppercase">Hari Tersibuk</div><div class="fs-4 fw-bold" id="vs-peak">-</div><div class="small text-muted" id="vs-peak-label"></div></div></div>
+            <div class="col-6 col-lg-3"><div class="border rounded p-2 h-100"><div class="small text-muted text-uppercase">Periode Sebelumnya</div><div class="fs-4 fw-bold text-secondary" id="vs-prev">-</div><div class="small text-muted" id="vs-prev-label"></div></div></div>
           </div>
           <div class="row g-3">
             <div class="col-lg-8"><div style="position:relative; height:280px;"><canvas id="vs-chart"></canvas></div></div>
@@ -963,13 +956,6 @@
               <div class="table-responsive" style="max-height:260px;overflow:auto;"><table class="table table-sm mb-0"><tbody id="vs-breakdown"><tr><td class="text-muted">Memuat...</td></tr></tbody></table></div>
             </div>
           </div>
-        </div>` : ''}
-
-        ${!isKasir ? `
-        <div class="row g-3 mb-4">
-          ${showEntrance ? unitWidgetCard_('masuk', 'Loket Masuk', 'col-md-4') : ''}
-          ${showRide ? unitWidgetCard_('wahana', 'Loket Wahana', 'col-md-4') : ''}
-          ${showResto ? unitWidgetCard_('resto', 'Resto', 'col-md-4') : ''}
         </div>` : ''}
 
         <div class="row g-3 mb-4">
@@ -1053,53 +1039,39 @@
 
       if (currentUser.role === 'Owner') loadDbDiagnostic();
       loadDashboardData('mine');
-      vsPeriod = 'day'; vsRef = todayStr();
-      loadVisitorPanel();
     }
 
     // ===== Kontrol Pengunjung (Dashboard) =====
-    let vsPeriod = 'day', vsRef = null, vsChart = null, vsReqSeq = 0;
-    function setVisitorPeriod(p) { vsPeriod = p; loadVisitorPanel(); }
-    function setVisitorDate(v) { if (!v) return; vsRef = v; loadVisitorPanel(); }
-    function shiftVisitorPeriod(dir) {
-      const p = String(vsRef || todayStr()).split('-').map(Number);
-      const d = new Date(p[0], p[1] - 1, p[2]);
-      if (vsPeriod === 'day') d.setDate(d.getDate() + dir);
-      else if (vsPeriod === 'week') d.setDate(d.getDate() + 7 * dir);
-      else if (vsPeriod === 'month') { d.setDate(1); d.setMonth(d.getMonth() + dir); }
-      else { d.setDate(1); d.setFullYear(d.getFullYear() + dir); }
-      vsRef = toDateStr_(d);
-      loadVisitorPanel();
-    }
+    // Mengikuti filter tanggal dashboard (dbRangeStart/dbRangeEnd) - dipanggil
+    // dari loadDashboardData supaya angka pengunjung, penjualan & penerimaan
+    // kasir selalu untuk rentang yang sama.
+    let vsChart = null, vsReqSeq = 0;
     function loadVisitorPanel() {
       if (!$('#visitor-panel').length) return;
-      if (!vsRef) vsRef = todayStr();
-      $('#vs-period-group button').each(function() { $(this).toggleClass('active', $(this).data('p') === vsPeriod); });
-      $('#vs-date').val(vsRef);
       const seq = ++vsReqSeq;
       $('#vs-label').text('Memuat...');
       google.script.run.withSuccessHandler(function(res) {
         if (seq !== vsReqSeq || !$('#visitor-panel').length) return;
         if (!res || !res.success) { $('#vs-label').html('<span class="text-danger">Gagal memuat: ' + esc((res && res.message) || '') + '</span>'); return; }
         const d = res.data;
-        const label = d.period === 'day' ? fmtDate(d.rangeStart)
-          : d.period === 'week' ? (fmtDate(d.rangeStart) + ' - ' + fmtDate(d.rangeEnd)) : d.label;
-        $('#vs-label').text('Periode: ' + label);
+        const rangeTxt = d.rangeStart === d.rangeEnd ? fmtDate(d.rangeStart) : (fmtDate(d.rangeStart) + ' - ' + fmtDate(d.rangeEnd));
+        $('#vs-label').text('Periode: ' + rangeTxt + ' (' + d.days + ' hari)');
         const nf = n => Number(n || 0).toLocaleString('id-ID');
         $('#vs-total').text(nf(d.total));
         $('#vs-avg').text(nf(d.avgPerDay));
-        $('#vs-prev-title').text('Total ' + d.prevLabel);
         $('#vs-prev').text(nf(d.prevTotal));
-        if (d.peak) { $('#vs-peak').text(nf(d.peak.qty)); $('#vs-peak-label').text(d.period === 'year' ? 'bulan ' + d.peak.label : 'tanggal ' + d.peak.label); }
+        $('#vs-prev-label').text(d.prevStart === d.prevEnd ? fmtDate(d.prevStart) : (fmtDate(d.prevStart) + ' - ' + fmtDate(d.prevEnd)));
+        if (d.peak) { $('#vs-peak').text(nf(d.peak.qty)); $('#vs-peak-label').text(fmtDate(d.peak.date)); }
         else { $('#vs-peak').text('-'); $('#vs-peak-label').text(''); }
-        if (d.changePct === null) $('#vs-change').html('<span class="text-muted">belum ada pembanding ' + esc(d.prevLabel) + '</span>');
+        if (d.changePct === null) $('#vs-change').html('<span class="text-muted">belum ada pembanding</span>');
         else {
           const up = d.changePct >= 0;
-          $('#vs-change').html('<span class="' + (up ? 'text-success' : 'text-danger') + ' fw-semibold"><i class="fa-solid fa-arrow-' + (up ? 'up' : 'down') + ' me-1"></i>' + Math.abs(d.changePct).toLocaleString('id-ID') + '%</span> <span class="text-muted">vs ' + esc(d.prevLabel) + '</span>');
+          $('#vs-change').html('<span class="' + (up ? 'text-success' : 'text-danger') + ' fw-semibold"><i class="fa-solid fa-arrow-' + (up ? 'up' : 'down') + ' me-1"></i>' + Math.abs(d.changePct).toLocaleString('id-ID') + '%</span> <span class="text-muted">vs periode sebelumnya</span>');
         }
         $('#vs-breakdown').html((d.breakdown || []).map(b => '<tr><td>' + esc(b.name) + '</td><td class="text-end fw-semibold">' + nf(b.qty) + '</td></tr>').join('') || '<tr><td class="text-muted">Belum ada penjualan tiket masuk pada periode ini</td></tr>');
-        const datasets = [{ type: 'bar', label: 'Pengunjung', data: d.values, backgroundColor: '#0284c7', borderRadius: 3, order: 2 }];
-        if (d.prevValues) datasets.push({ type: 'line', label: d.prevLabel.charAt(0).toUpperCase() + d.prevLabel.slice(1), data: d.prevValues, borderColor: '#94a3b8', backgroundColor: '#94a3b8', borderDash: [5, 4], pointRadius: 2, tension: .25, spanGaps: false, order: 1 });
+        const datasets = [{ type: 'bar', label: 'Pengunjung', data: d.values, order: 2, borderRadius: 3,
+          backgroundColor: d.inRange.map(f => f ? '#0284c7' : 'rgba(2,132,199,.25)') }];
+        if (d.prevValues) datasets.push({ type: 'line', label: 'Periode sebelumnya', data: d.prevValues, borderColor: '#94a3b8', backgroundColor: '#94a3b8', borderDash: [5, 4], pointRadius: 2, tension: .25, order: 1 });
         if (vsChart) vsChart.destroy();
         vsChart = new Chart(document.getElementById('vs-chart'), {
           data: { labels: d.labels, datasets: datasets },
@@ -1110,7 +1082,7 @@
       }).withFailureHandler(function(err) {
         if (seq !== vsReqSeq) return;
         $('#vs-label').html('<span class="text-danger">Gagal memuat: ' + esc((err && err.message) || err) + '</span>');
-      }).getVisitorStats(sessionToken, vsPeriod, vsRef);
+      }).getVisitorStats(sessionToken, dbRangeStart, dbRangeEnd);
     }
 
     // Scope: "mine" = transaksi outlet sendiri saja (default untuk Kasir),
@@ -1179,6 +1151,7 @@
     function loadDashboardData(scope) {
       dbCurrentScope = scope;
       loadBalanceCheckWidget();
+      loadVisitorPanel();
       google.script.run.withSuccessHandler(function(res) {
         if (!res.success) return Swal.fire('Gagal', res.message, 'error');
         $('#m-total').text(fmtRp(res.metrics.totalSalesToday));
