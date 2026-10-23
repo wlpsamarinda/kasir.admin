@@ -757,6 +757,9 @@
             </div>
           </li>`;
       }
+      if (role === 'Owner') {
+        html += `<li><a onclick="loadView('askai')" data-view="askai"><i class="fa-solid ${mIcon('askai','fa-robot')}"></i><span class="nav-text">${esc(mLabel('askai','Tanya AI'))}</span></a></li>`;
+      }
       html += `<li class="menu-group-label"></li><li><a onclick="logoutSystem()" class="text-danger"><i class="fa-solid fa-right-from-bracket"></i><span class="nav-text">Logout</span></a></li>`;
 
       $('#nav-links').html(html);
@@ -777,6 +780,7 @@
       else if (view === 'catpay') { setActiveNav('catpay'); renderCategoriesPayments(area); }
       else if (view === 'users') { setActiveNav('users'); renderUsers(area); }
       else if (view === 'settings') { setActiveNav('settings'); renderSettings(area); }
+      else if (view === 'askai') { setActiveNav('askai'); renderAskAiView(area); }
       else if (view === 'menuconfig') { setActiveNav('menuconfig'); renderMenuConfigView(area); }
       else if (view === 'sales') { setActiveNav('sales-'+param); renderSalesView(area, param); }
       else if (view === 'payment') { setActiveNav('payment-'+param); renderPaymentView(area, param); }
@@ -1039,6 +1043,259 @@
 
       if (currentUser.role === 'Owner') loadDbDiagnostic();
       loadDashboardData('mine');
+    }
+
+    // ================= TANYA AI (Hermes Agent lokal di PC) =================
+    // Hanya Owner. Browser memanggil API server Hermes yang berjalan di PC
+    // yang sama (default http://127.0.0.1:8642). Data sistem diambil lewat
+    // fungsi server yang sudah ada (hak akses tetap sesuai login), diringkas
+    // jadi konteks, lalu dikirim bersama pertanyaan. Kunci API Hermes hanya
+    // disimpan di localStorage browser ini, tidak pernah dikirim ke server/GitHub.
+    const ASKAI_LS_ = { url: 'wl_hermes_url', key: 'wl_hermes_key', model: 'wl_hermes_model' };
+    let askAiHistory = [], askAiCtx = null, askAiAbort = null, askAiBusy = false;
+
+    function askAiLs_(k, v) {
+      try { if (v === undefined) return localStorage.getItem(ASKAI_LS_[k]) || ''; localStorage.setItem(ASKAI_LS_[k], v); } catch (e) { return ''; }
+    }
+    function askAiGas_(fn) {
+      const args = Array.prototype.slice.call(arguments, 1);
+      return new Promise(function(resolve) {
+        try {
+          google.script.run.withSuccessHandler(function(r) { resolve({ ok: true, v: r }); })
+            .withFailureHandler(function(e) { resolve({ ok: false, msg: (e && e.message) || String(e) }); })[fn].apply(null, args);
+        } catch (e) { resolve({ ok: false, msg: e.message }); }
+      });
+    }
+
+    function renderAskAiView(area) {
+      if (currentUser.role !== 'Owner') { area.html('<div class="alert alert-warning">Menu ini khusus Owner.</div>'); return; }
+      askAiHistory = []; askAiCtx = null; askAiBusy = false;
+      const t = todayStr();
+      area.html(`
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-1">
+          <h2 class="fw-bold mb-0"><i class="fa-solid fa-robot me-2 text-primary"></i>Tanya AI</h2>
+          <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#askai-settings"><i class="fa-solid fa-plug me-1"></i>Koneksi Hermes</button>
+        </div>
+        <p class="text-muted small mb-3">Tanya apa saja tentang data sistem pada periode yang dipilih. Data periode itu dikirim ke Hermes di PC Anda (dan ke penyedia model AI yang Anda pakai di Hermes).</p>
+
+        <div class="collapse mb-3 ${askAiLs_('key') ? '' : 'show'}" id="askai-settings">
+          <div class="card p-3 shadow-sm">
+            <div class="row g-2 align-items-end">
+              <div class="col-md-5"><label class="form-label small mb-1">Alamat API Hermes</label><input id="askai-url" class="form-control form-control-sm" placeholder="http://127.0.0.1:8642" value="${esc(askAiLs_('url') || 'http://127.0.0.1:8642')}"></div>
+              <div class="col-md-4"><label class="form-label small mb-1">API Key (API_SERVER_KEY)</label><input id="askai-key" type="password" class="form-control form-control-sm" autocomplete="off" value="${esc(askAiLs_('key'))}"></div>
+              <div class="col-md-3"><label class="form-label small mb-1">Nama model</label><input id="askai-model" class="form-control form-control-sm" placeholder="otomatis" value="${esc(askAiLs_('model'))}"></div>
+            </div>
+            <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+              <button class="btn btn-sm btn-primary" onclick="askAiSaveSettings(true)"><i class="fa-solid fa-plug-circle-check me-1"></i>Simpan &amp; Tes Koneksi</button>
+              <span class="small" id="askai-conn"></span>
+            </div>
+            <div class="small text-muted mt-2">Di PC: isi <code>~/.hermes/.env</code> dengan <code>API_SERVER_ENABLED=true</code>, <code>API_SERVER_KEY=...</code>, dan <code>API_SERVER_CORS_ORIGINS=${esc(location.origin)}</code>, lalu jalankan <code>hermes gateway</code>. Kunci disimpan hanya di browser ini.</div>
+          </div>
+        </div>
+
+        <div class="card p-3 shadow-sm mb-3">
+          <div class="d-flex flex-wrap align-items-end gap-2">
+            <div><label class="form-label small mb-1">Periode data</label>
+              <select id="askai-preset" class="form-select form-select-sm" onchange="askAiPresetChange()">
+                <option value="today">Hari Ini</option><option value="yesterday">Kemarin</option><option value="week">7 Hari Terakhir</option>
+                <option value="month" selected>Bulan Ini</option><option value="year">Tahun Ini</option><option value="custom">Rentang Kustom</option>
+              </select></div>
+            <div><label class="form-label small mb-1">Dari</label><input type="date" id="askai-start" class="form-control form-control-sm" value="${t}" onchange="$('#askai-preset').val('custom');askAiCtx=null;"></div>
+            <div><label class="form-label small mb-1">Sampai</label><input type="date" id="askai-end" class="form-control form-control-sm" value="${t}" onchange="$('#askai-preset').val('custom');askAiCtx=null;"></div>
+            <button class="btn btn-sm btn-outline-primary" onclick="askAiLoadContext(true)"><i class="fa-solid fa-rotate me-1"></i>Muat Ulang Data</button>
+            <div class="small text-muted ms-auto" id="askai-ctx-info">Data belum dimuat (otomatis dimuat saat bertanya)</div>
+          </div>
+        </div>
+
+        <div class="card p-3 shadow-sm">
+          <div id="askai-chat" style="min-height:260px;max-height:55vh;overflow-y:auto;" class="mb-3">
+            <div class="text-muted small" id="askai-empty">Contoh pertanyaan:
+              <div class="d-flex flex-wrap gap-2 mt-2">
+                ${['Ringkas performa periode ini', 'Bandingkan pengunjung dengan periode sebelumnya', 'Pengeluaran terbesar apa saja?', 'Apakah ada laporan kasir yang tidak balance?', 'Produk apa yang paling laris dan kategori apa yang paling besar?'].map(q => `<button class="btn btn-sm btn-outline-secondary" onclick="askAiSend(this.textContent)">${esc(q)}</button>`).join('')}
+              </div>
+            </div>
+          </div>
+          <div class="d-flex gap-2 align-items-end">
+            <textarea id="askai-input" class="form-control" rows="2" placeholder="Tulis pertanyaan... (Enter = kirim, Shift+Enter = baris baru)" style="font-size:16px"></textarea>
+            <button class="btn btn-primary" id="askai-send" onclick="askAiSend()"><i class="fa-solid fa-paper-plane"></i></button>
+            <button class="btn btn-outline-danger d-none" id="askai-stop" onclick="askAiStop()"><i class="fa-solid fa-stop"></i></button>
+          </div>
+          <div class="d-flex justify-content-between mt-2"><span class="small text-muted">Jawaban AI bisa keliru, cek angka penting di laporan.</span><a href="#" class="small" onclick="askAiClear();return false;">Bersihkan percakapan</a></div>
+        </div>`);
+      $('#askai-input').on('keydown', function(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); askAiSend(); } });
+      askAiPresetChange();
+    }
+
+    function askAiPresetChange() {
+      const p = $('#askai-preset').val(); const now = new Date();
+      let s = now, e = now;
+      if (p === 'yesterday') { s = new Date(now); s.setDate(s.getDate() - 1); e = s; }
+      else if (p === 'week') { s = new Date(now); s.setDate(s.getDate() - 6); }
+      else if (p === 'month') s = new Date(now.getFullYear(), now.getMonth(), 1);
+      else if (p === 'year') s = new Date(now.getFullYear(), 0, 1);
+      if (p !== 'custom') { $('#askai-start').val(toDateStr_(s)); $('#askai-end').val(toDateStr_(e)); }
+      askAiCtx = null;
+      $('#askai-ctx-info').text('Data belum dimuat (otomatis dimuat saat bertanya)');
+    }
+
+    function askAiBase_() { return String($('#askai-url').val() || askAiLs_('url') || 'http://127.0.0.1:8642').trim().replace(/\/+$/, ''); }
+    function askAiNetHelp_() {
+      return 'Tidak bisa terhubung ke Hermes. Periksa: (1) <code>hermes gateway</code> sedang berjalan di PC ini, (2) <code>API_SERVER_CORS_ORIGINS</code> berisi <code>' + esc(location.origin) + '</code>, (3) jika Chrome menanyakan izin akses ke perangkat/jaringan lokal, pilih Izinkan, (4) halaman ini dibuka dari PC yang sama dengan Hermes (bukan HP).';
+    }
+
+    function askAiSaveSettings(test) {
+      askAiLs_('url', $('#askai-url').val().trim()); askAiLs_('key', $('#askai-key').val().trim()); askAiLs_('model', $('#askai-model').val().trim());
+      if (!test) return;
+      const $c = $('#askai-conn').removeClass('text-success text-danger').text('Menguji...');
+      fetch(askAiBase_() + '/v1/models', { headers: { 'Authorization': 'Bearer ' + askAiLs_('key') } })
+        .then(r => { if (r.status === 401 || r.status === 403) throw new Error('API key ditolak (periksa API_SERVER_KEY).'); if (!r.ok) throw new Error('Server membalas ' + r.status); return r.json(); })
+        .then(j => {
+          const id = j && j.data && j.data[0] && j.data[0].id;
+          if (id && !askAiLs_('model')) { askAiLs_('model', id); $('#askai-model').val(id); }
+          $c.addClass('text-success').html('<i class="fa-solid fa-circle-check me-1"></i>Terhubung' + (id ? ' (model: ' + esc(id) + ')' : ''));
+        })
+        .catch(err => { $c.addClass('text-danger').html(err instanceof TypeError ? askAiNetHelp_() : esc(err.message)); });
+    }
+
+    function askAiClear() { askAiHistory = []; $('#askai-chat').html('<div class="text-muted small">Percakapan dibersihkan.</div>'); }
+    function askAiStop() { if (askAiAbort) askAiAbort.abort(); }
+
+    // Ambil & ringkas data sistem untuk periode terpilih -> teks JSON ringkas
+    async function askAiLoadContext(force) {
+      const start = $('#askai-start').val(), end = $('#askai-end').val();
+      if (!start || !end) throw new Error('Pilih periode data terlebih dahulu.');
+      const key = start + '|' + end;
+      if (!force && askAiCtx && askAiCtx.key === key) return askAiCtx;
+      $('#askai-ctx-info').html('<span class="spinner-border spinner-border-sm me-1"></span>Memuat data sistem...');
+      const [dash, vis, exp, bal] = await Promise.all([
+        askAiGas_('getDashboardData', sessionToken, 'All', start, end),
+        askAiGas_('getVisitorStats', sessionToken, start, end),
+        askAiGas_('getFinanceExpensesRange', start, end, sessionToken),
+        askAiGas_('getBalanceCheckReport', sessionToken, start, end)
+      ]);
+      const ok = r => r.ok && r.v && r.v.success !== false;
+      const miss = [];
+      const ctx = { periode: { dari: start, sampai: end } };
+      if (ok(dash)) {
+        const d = dash.v, m = d.metrics || {};
+        ctx.penjualan = { total: m.totalSalesToday, loketMasuk: m.totalMasuk, loketWahana: m.totalWahana, resto: m.totalResto };
+        ctx.penerimaanKasir = { total: m.totalPenerimaanKasir, tunai: m.totalCash, qris: m.totalQris, transfer: m.totalTransfer, debit: m.totalDebit, kredit: m.totalKredit, perOutlet: d.paymentBreakdown };
+        ctx.penjualanPerKategori = d.categoryChart;
+        ctx.produkTerlarisBerdasarkanPendapatan = d.topProductsChart;
+        ctx.keuangan = d.finance;
+        if (d.chart && d.chart.labels && d.chart.labels.length <= 62) ctx.perHari = d.chart.labels.map((l, i) => ({ tanggal: l, penjualan: d.chart.sales[i], pengeluaran: d.chart.expenses[i] }));
+        ctx.stokMenipis = { jumlah: d.lowStockCount, contoh: (d.lowStockItems || []).map(s => ({ produk: s.ProductName, qty: s.Quantity, minimum: s.MinStock, gudang: s.WarehouseName })) };
+      } else miss.push('penjualan/penerimaan/keuangan');
+      if (ok(vis)) {
+        const v = vis.v.data;
+        ctx.pengunjung = { definisi: 'total Qty penjualan kategori Tiket Masuk', total: v.total, rataRataPerHari: v.avgPerDay, hariTersibuk: v.peak, periodeSebelumnya: { dari: v.prevStart, sampai: v.prevEnd, total: v.prevTotal }, persenPerubahan: v.changePct, perJenisTiket: v.breakdown, tren: v.labels.map((l, i) => [l, v.values[i]]) };
+      } else miss.push('pengunjung');
+      if (ok(exp)) {
+        const rows = exp.v.data || [];
+        const grp = f => { const a = {}; rows.forEach(r => { const k = String(f(r) || '-'); a[k] = (a[k] || 0) + (Number(r.Amount) || 0); }); return Object.keys(a).map(k => ({ nama: k, total: a[k] })).sort((x, y) => y.total - x.total).slice(0, 15); };
+        ctx.pengeluaranRinci = {
+          jumlahBaris: rows.length,
+          perPosBiaya: grp(r => r.COAName), perPosPenggunaan: grp(r => r.PosPenggunaan), perSupplier: grp(r => r.Supplier), perStatusPembayaran: grp(r => r.StatusPembayaran),
+          terbesar: rows.slice().sort((a, b) => (Number(b.Amount) || 0) - (Number(a.Amount) || 0)).slice(0, 25).map(r => ({ tanggal: String(r.Date).slice(0, 10), supplier: r.Supplier, deskripsi: r.Description, jumlah: r.Amount, status: r.StatusPembayaran, posBiaya: r.COAName, posPenggunaan: r.PosPenggunaan }))
+        };
+      } else miss.push('pengeluaran rinci');
+      if (ok(bal)) ctx.laporanKasirTidakBalance = { jumlah: bal.v.mismatchCount, daftar: (bal.v.mismatches || []).slice(0, 20) };
+      else miss.push('cek balance');
+      if (miss.length) ctx.dataTidakTersedia = miss;
+      let text = JSON.stringify(ctx);
+      if (text.length > 60000) text = text.slice(0, 60000);
+      askAiCtx = { key: key, text: text };
+      $('#askai-ctx-info').html('<i class="fa-solid fa-circle-check text-success me-1"></i>Data siap: ' + esc(fmtDate(start)) + ' - ' + esc(fmtDate(end)) + (miss.length ? ' <span class="text-warning">(sebagian tidak tersedia)</span>' : ''));
+      return askAiCtx;
+    }
+
+    function askAiMd_(text) {
+      const inline = s => esc(s).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/`([^`]+)`/g, '<code>$1</code>');
+      const lines = String(text).split('\n'); const out = []; let i = 0, ul = false;
+      const closeUl = () => { if (ul) { out.push('</ul>'); ul = false; } };
+      while (i < lines.length) {
+        const ln = lines[i];
+        if (/^\s*\|/.test(ln)) {
+          closeUl(); const blk = [];
+          while (i < lines.length && /^\s*\|/.test(lines[i])) blk.push(lines[i++]);
+          const cells = l => l.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim());
+          const rowsB = blk.filter(l => !/^\s*\|?\s*:?-{2,}/.test(l));
+          if (rowsB.length) {
+            out.push('<div class="table-responsive"><table class="table table-sm table-bordered mb-2"><thead><tr>' + cells(rowsB[0]).map(c => '<th>' + inline(c) + '</th>').join('') + '</tr></thead><tbody>' +
+              rowsB.slice(1).map(r => '<tr>' + cells(r).map(c => '<td>' + inline(c) + '</td>').join('') + '</tr>').join('') + '</tbody></table></div>');
+          }
+          continue;
+        }
+        if (/^\s*[-*]\s+/.test(ln)) { if (!ul) { out.push('<ul class="mb-2">'); ul = true; } out.push('<li>' + inline(ln.replace(/^\s*[-*]\s+/, '')) + '</li>'); }
+        else if (/^#{1,4}\s+/.test(ln)) { closeUl(); out.push('<div class="fw-bold mt-2">' + inline(ln.replace(/^#{1,4}\s+/, '')) + '</div>'); }
+        else if (!ln.trim()) { closeUl(); }
+        else { closeUl(); out.push('<div>' + inline(ln) + '</div>'); }
+        i++;
+      }
+      closeUl(); return out.join('');
+    }
+
+    function askAiBubble_(role, html) {
+      const mine = role === 'user';
+      const $b = $(`<div class="d-flex mb-2 ${mine ? 'justify-content-end' : ''}"><div class="rounded-3 px-3 py-2 ${mine ? 'bg-primary text-white' : 'border'}" style="max-width:92%;overflow-wrap:anywhere;">${html}</div></div>`);
+      $('#askai-empty').remove(); $('#askai-chat').append($b);
+      const el = document.getElementById('askai-chat'); el.scrollTop = el.scrollHeight;
+      return $b.find('> div');
+    }
+
+    async function askAiSend(preset) {
+      if (askAiBusy) return;
+      const q = String(preset || $('#askai-input').val() || '').trim();
+      if (!q) return;
+      if (!askAiLs_('key') && !$('#askai-key').val()) { $('#askai-settings').collapse('show'); return Swal.fire('Koneksi belum diatur', 'Isi API Key Hermes di bagian Koneksi Hermes terlebih dahulu.', 'info'); }
+      askAiSaveSettings(false);
+      $('#askai-input').val('');
+      askAiBubble_('user', esc(q).replace(/\n/g, '<br>'));
+      const $ans = askAiBubble_('assistant', '<span class="spinner-border spinner-border-sm me-1"></span><span class="text-muted">Menyiapkan data...</span>');
+      askAiBusy = true; $('#askai-send').addClass('d-none'); $('#askai-stop').removeClass('d-none');
+      askAiAbort = new AbortController();
+      let acc = '';
+      try {
+        const ctx = await askAiLoadContext(false);
+        $ans.html('<span class="spinner-border spinner-border-sm me-1"></span><span class="text-muted">Hermes sedang berpikir...</span>');
+        const sys = 'Kamu adalah asisten analis data untuk Wonderland Samarinda (taman rekreasi: loket masuk, wahana, resto). Jawab dalam Bahasa Indonesia, singkat dan jelas, HANYA berdasarkan DATA di bawah. ' +
+          'JANGAN menjalankan perintah, memakai tool/terminal, membuka file, atau mengakses internet; cukup jawab dari data. Jika data tidak ada atau tidak cukup, katakan terus terang dan jangan mengarang angka. ' +
+          'Tulis rupiah dengan pemisah titik (mis. Rp 1.250.000). Boleh pakai tabel markdown atau poin-poin. "Pengunjung" = total Qty penjualan kategori Tiket Masuk.\n\nDATA (JSON):\n' + ctx.text;
+        const msgs = [{ role: 'system', content: sys }].concat(askAiHistory.slice(-10), [{ role: 'user', content: q }]);
+        const model = askAiLs_('model') || 'hermes-agent';
+        const resp = await fetch(askAiBase_() + '/v1/chat/completions', {
+          method: 'POST', signal: askAiAbort.signal,
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + askAiLs_('key') },
+          body: JSON.stringify({ model: model, messages: msgs, stream: true })
+        });
+        if (resp.status === 401 || resp.status === 403) throw new Error('API key ditolak oleh Hermes (periksa API_SERVER_KEY).');
+        if (!resp.ok) { let t = ''; try { t = (await resp.text()).slice(0, 300); } catch (e) {} throw new Error('Hermes membalas ' + resp.status + (t ? ': ' + t : '')); }
+        const ct = resp.headers.get('content-type') || '';
+        if (ct.indexOf('text/event-stream') === -1) {
+          const j = await resp.json(); acc = (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '';
+          $ans.html(askAiMd_(acc || '(jawaban kosong)'));
+        } else {
+          const reader = resp.body.getReader(); const dec = new TextDecoder(); let buf = '';
+          for (;;) {
+            const { done, value } = await reader.read(); if (done) break;
+            buf += dec.decode(value, { stream: true });
+            let nl;
+            while ((nl = buf.indexOf('\n')) >= 0) {
+              const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+              if (line.indexOf('data:') !== 0) continue;
+              const data = line.slice(5).trim(); if (!data || data === '[DONE]') continue;
+              try { const j = JSON.parse(data); const dlt = j.choices && j.choices[0] && j.choices[0].delta && j.choices[0].delta.content; if (dlt) { acc += dlt; $ans.html(askAiMd_(acc)); const el = document.getElementById('askai-chat'); el.scrollTop = el.scrollHeight; } } catch (e) {}
+            }
+          }
+          if (!acc) $ans.html('<span class="text-muted">(jawaban kosong)</span>');
+        }
+        askAiHistory.push({ role: 'user', content: q }, { role: 'assistant', content: acc });
+      } catch (err) {
+        if (err && err.name === 'AbortError') { $ans.html((acc ? askAiMd_(acc) : '') + '<div class="small text-muted mt-1">(dihentikan)</div>'); if (acc) askAiHistory.push({ role: 'user', content: q }, { role: 'assistant', content: acc }); }
+        else $ans.html('<span class="text-danger">' + (err instanceof TypeError ? askAiNetHelp_() : esc(err.message || String(err))) + '</span>');
+      } finally {
+        askAiBusy = false; askAiAbort = null; $('#askai-send').removeClass('d-none'); $('#askai-stop').addClass('d-none');
+      }
     }
 
     // ===== Kontrol Pengunjung (Dashboard) =====
