@@ -421,6 +421,68 @@
       }
     }
 
+    // ===== Pemilih periode untuk Report Admin Keuangan & Report Semua Kasir =====
+    // Preset: Hari Ini, Kemarin, Minggu (7 hari terakhir), Bulan (awal bulan s/d
+    // hari ini), Tahun (awal tahun s/d hari ini), dan Rentang Tanggal (bebas).
+    const REP_STATE = {
+      fin: { preset: 'today', start: todayStr(), end: todayStr() },
+      akr: { preset: 'today', start: todayStr(), end: todayStr() }
+    };
+    function repPresetRange_(preset) {
+      let now = new Date(), a = now, b = now;
+      if (preset === 'yesterday') { a = b = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1); }
+      else if (preset === 'week') { a = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6); }
+      else if (preset === 'month') { a = new Date(now.getFullYear(), now.getMonth(), 1); }
+      else if (preset === 'year') { a = new Date(now.getFullYear(), 0, 1); }
+      return { start: toDateStr_(a), end: toDateStr_(b) };
+    }
+    function repDateControlsHtml_(k) {
+      const st = REP_STATE[k];
+      const b = (p, l) => `<button type="button" class="btn btn-outline-primary btn-sm ${st.preset === p ? 'active' : ''}" id="${k}-preset-${p}" onclick="repApplyPreset_('${k}','${p}')">${l}</button>`;
+      return `<div><label class="form-label small mb-1">Periode</label>
+          <div class="btn-group flex-wrap" id="${k}-preset-group">${b('today','Hari Ini')}${b('yesterday','Kemarin')}${b('week','Minggu')}${b('month','Bulan')}${b('year','Tahun')}${b('custom','Rentang Tanggal')}</div></div>
+        <div><label class="form-label small mb-1">Dari</label><input type="date" id="${k}-start" class="form-control" value="${st.start}" onchange="repCustom_('${k}')"></div>
+        <div><label class="form-label small mb-1">Sampai</label><input type="date" id="${k}-end" class="form-control" value="${st.end}" onchange="repCustom_('${k}')"></div>`;
+    }
+    function repSetActive_(k, preset) {
+      $('#' + k + '-preset-group button').removeClass('active');
+      $('#' + k + '-preset-' + preset).addClass('active');
+    }
+    function repCustom_(k) { REP_STATE[k].preset = 'custom'; repSetActive_(k, 'custom'); }
+    function repReload_(k) { if (k === 'fin') loadFinanceReport(); else loadAllKasirReport(); }
+    function repApplyPreset_(k, preset) {
+      REP_STATE[k].preset = preset;
+      repSetActive_(k, preset);
+      if (preset === 'custom') return; // tunggu pengguna memilih tanggal lalu klik Tampilkan
+      let rg = repPresetRange_(preset);
+      REP_STATE[k].start = rg.start; REP_STATE[k].end = rg.end;
+      $('#' + k + '-start').val(rg.start); $('#' + k + '-end').val(rg.end);
+      repReload_(k);
+    }
+    // Ambil nilai input; kembalikan false kalau rentang tidak valid.
+    function repReadInputs_(k) {
+      let s = $('#' + k + '-start').val() || REP_STATE[k].start;
+      let e = $('#' + k + '-end').val() || s;
+      if (e < s) { let t = s; s = e; e = t; $('#' + k + '-start').val(s); $('#' + k + '-end').val(e); }
+      REP_STATE[k].start = s; REP_STATE[k].end = e;
+      return REP_STATE[k];
+    }
+    // Label periode untuk tampilan/cetak: "03 Nov 2026" atau "01 Nov 2026 s/d 03 Nov 2026".
+    function repLabel_(r) {
+      return (r.endDateStr && r.endDateStr !== r.dateStr) ? (fmtDate(r.dateStr) + ' s/d ' + fmtDate(r.endDateStr)) : fmtDate(r.dateStr);
+    }
+    function repIsoLabel_(r) {
+      return (r.endDateStr && r.endDateStr !== r.dateStr) ? (r.dateStr + ' s/d ' + r.endDateStr) : r.dateStr;
+    }
+    function repFileSuffix_(r) {
+      return (r.endDateStr && r.endDateStr !== r.dateStr) ? (r.dateStr + '_sd_' + r.endDateStr) : r.dateStr;
+    }
+    // Kolom tanda tangan di akhir PDF (hanya PDF, tidak untuk XLSX/WA).
+    const PDF_SIGNATURES = [
+      { role: 'Admin Keuangan', name: 'Eli Yasar' },
+      { role: 'Manager Operasional', name: 'Eli Yasar' }
+    ];
+
     function buildPdfDoc_(title, subtitle, sections, headerInfo, chartImages, orientation) {
       // sections: [{ heading, headers, rows, totalLabel, totalValue }]
       // headerInfo (opsional): { cashierName, cashierPosition, reportDate, logoUrl }
@@ -531,6 +593,29 @@
           });
           y = doc.lastAutoTable.finalY + 10;
         });
+
+        // Kolom tanda tangan (Admin Keuangan & Manager Operasional) di bagian
+        // paling akhir laporan. Pindah halaman kalau sisa ruang tidak cukup.
+        if (headerInfo && headerInfo.signatures && headerInfo.signatures.length) {
+          let pageW = doc.internal.pageSize.getWidth();
+          let pageH = doc.internal.pageSize.getHeight();
+          let blockH = 120;
+          if (y + blockH > pageH - 30) { doc.addPage(); y = 40; }
+          y += 16;
+          let sigs = headerInfo.signatures;
+          let usable = pageW - 80;
+          let colW = usable / sigs.length;
+          doc.setFontSize(9); doc.setFont(undefined, 'normal');
+          sigs.forEach(function(sg, i) {
+            let cx = 40 + colW * i + colW / 2;
+            doc.text(String(sg.role || ''), cx, y, { align: 'center' });
+            doc.setDrawColor(60);
+            doc.line(cx - 70, y + 70, cx + 70, y + 70);
+            doc.setFont(undefined, 'bold');
+            doc.text(String(sg.name || ''), cx, y + 82, { align: 'center' });
+            doc.setFont(undefined, 'normal');
+          });
+        }
         return doc;
       }
     }
@@ -6337,7 +6422,7 @@
         <p class="text-muted mb-4">Report Harian (Rekapan Gabungan Semua Outlet)</p>
         <div class="card p-3 shadow-sm mb-3">
           <div class="d-flex flex-wrap gap-2 align-items-end">
-            <div><label class="form-label small mb-1">Tanggal</label><input type="date" id="fin-rep-date" class="form-control" value="${financeReportDate}"></div>
+            ${repDateControlsHtml_('fin')}
             <button class="btn btn-primary" onclick="loadFinanceReport()"><i class="fa-solid fa-magnifying-glass me-2"></i>Tampilkan</button>
             <button class="btn btn-outline-dark" onclick="openFinanceReportSectionsModal()"><i class="fa-solid fa-sliders me-2"></i>Atur Isi Laporan</button>
             <button class="btn btn-danger" onclick="downloadFinanceReportPdf()"><i class="fa-solid fa-file-pdf me-2"></i>PDF</button>
@@ -6346,18 +6431,59 @@
             <button class="btn btn-outline-primary" onclick="openFinanceReportEmailModal()"><i class="fa-solid fa-envelope me-2"></i>Kirim Email</button>
           </div>
         </div>
+        <div class="card shadow-sm mb-3 d-none" id="fin-rep-balance-card">
+          <div class="card-body py-2">
+            <div class="d-flex justify-content-between align-items-center mb-1">
+              <h6 class="fw-bold mb-0"><i class="fa-solid fa-scale-balanced me-2"></i>Check Balance Laporan Kasir <span class="small text-muted fw-normal">(hanya untuk pantauan, tidak ikut dicetak)</span></h6>
+              <span class="badge bg-secondary" id="fin-rep-balance-badge">Memeriksa...</span>
+            </div>
+            <div id="fin-rep-balance-body"></div>
+          </div>
+        </div>
         <div id="fin-rep-content"><div class="text-center text-muted p-5"><i class="fa-solid fa-spinner fa-spin fa-lg"></i></div></div>`);
       loadFinanceReport();
     }
 
+    // Panel Check Balance di Report Admin Keuangan: hanya tampil di layar
+    // (di luar #fin-rep-content), TIDAK dimasukkan ke PDF/XLSX/WA/email.
+    function loadFinanceBalancePanel_(start, end) {
+      $('#fin-rep-balance-card').removeClass('d-none');
+      $('#fin-rep-balance-badge').removeClass('bg-success bg-danger').addClass('bg-secondary').text('Memeriksa...');
+      $('#fin-rep-balance-body').html('<p class="text-muted small mb-0">Memeriksa kecocokan Total Penjualan vs Total Penerimaan Kasir...</p>');
+      const fail = function(msg) {
+        $('#fin-rep-balance-badge').removeClass('bg-secondary bg-success').addClass('bg-danger').text('Gagal');
+        $('#fin-rep-balance-body').html('<p class="text-danger small mb-0">Gagal memeriksa: ' + esc(msg) + '</p>');
+      };
+      google.script.run.withSuccessHandler(function(res) {
+        if (!res.success) return fail(res.message);
+        if (!res.mismatchCount) {
+          $('#fin-rep-balance-badge').removeClass('bg-secondary bg-danger').addClass('bg-success').text('Semua Balance');
+          $('#fin-rep-balance-body').html('<p class="text-success small mb-0"><i class="fa-solid fa-circle-check me-1"></i>Semua laporan kasir pada periode ini sudah balance antara Total Penjualan dan Total Penerimaan.</p>');
+          return;
+        }
+        $('#fin-rep-balance-badge').removeClass('bg-secondary bg-success').addClass('bg-danger').text(res.mismatchCount + ' Tidak Balance');
+        let rows = res.mismatches.map(function(m) {
+          let sales = m.selisih > 0;
+          return `<tr><td>${fmtDate(m.date)}</td><td>${esc(m.unitLabel)}</td><td class="text-end">${fmtRp(m.totalSales)}</td><td class="text-end">${fmtRp(m.totalPenerimaan)}</td>
+            <td class="text-end fw-semibold ${sales ? 'text-danger' : 'text-warning'}">${sales ? 'Penjualan lebih besar ' : 'Penerimaan lebih besar '}${fmtRp(Math.abs(m.selisih))}</td></tr>`;
+        }).join('');
+        $('#fin-rep-balance-body').html(`<p class="small text-muted mb-2"><i class="fa-solid fa-triangle-exclamation me-1 text-warning"></i>Ditemukan ${res.mismatchCount} laporan kasir yang tidak balance pada periode ini.</p>
+          <div class="table-responsive"><table class="table table-sm table-striped mb-0">
+            <thead><tr><th>Tanggal</th><th>Kasir</th><th class="text-end">Total Penjualan</th><th class="text-end">Total Penerimaan</th><th class="text-end">Selisih</th></tr></thead>
+            <tbody>${rows}</tbody></table></div>`);
+      }).withFailureHandler(function(err) { fail((err && err.message) || String(err)); }).getBalanceCheckReport(sessionToken, start, end);
+    }
+
     function loadFinanceReport() {
-      financeReportDate = $('#fin-rep-date').val() || financeReportDate;
+      let st = repReadInputs_('fin');
+      financeReportDate = st.start;
+      loadFinanceBalancePanel_(st.start, st.end);
       $('#fin-rep-content').html('<div class="text-center text-muted p-5"><i class="fa-solid fa-spinner fa-spin fa-lg"></i></div>');
       google.script.run.withSuccessHandler(function(res) {
         if (!res.success) { $('#fin-rep-content').html(''); return Swal.fire('Gagal', res.message, 'error'); }
         financeReportData = res;
         renderFinanceReportContent(res);
-      }).withFailureHandler(errHandler).getFinanceDailyReport(financeReportDate, sessionToken);
+      }).withFailureHandler(errHandler).getFinanceDailyReport(st.start, sessionToken, st.end);
     }
 
     function finRow_(label, value, opts) {
@@ -6469,7 +6595,7 @@
               <div class="text-muted small">${esc(r.address)}</div>
             </div>
             <div class="text-md-end">
-              <div>Tanggal Laporan: <strong>${fmtDate(r.dateStr)}</strong></div>
+              <div>${r.isRange ? 'Periode' : 'Tanggal'} Laporan: <strong>${repLabel_(r)}</strong></div>
               <div class="small text-muted">Nama Petugas: ${esc(r.cashierName)} (${esc(r.cashierPosition)})</div>
             </div>
           </div>
@@ -6555,7 +6681,7 @@
 
           <hr>
           <div class="small text-muted">
-            Total Pendapatan Bulan Ini (s/d ${fmtDate(r.dateStr)}): <strong>${fmtRp(r.omsetBulanIni)}</strong> &nbsp;·&nbsp;
+            Total Pendapatan Bulan Ini (s/d ${fmtDate(r.endDateStr || r.dateStr)}): <strong>${fmtRp(r.omsetBulanIni)}</strong> &nbsp;·&nbsp;
             Total Pengeluaran Bulan Ini: <strong>${fmtRp(r.pengeluaranBulanIni)}</strong>
           </div>
         </div>`;
@@ -6576,7 +6702,7 @@
 
       let txt = '';
       txt += `🌴 *LAPORAN HARIAN ${(r.companyName || '').toUpperCase()}*\n`;
-      txt += `🗓️ Tanggal : ${fmtDate(r.dateStr)}\n\n`;
+      txt += `🗓️ ${r.isRange ? 'Periode' : 'Tanggal'} : ${repLabel_(r)}\n\n`;
       txt += `🔰 *SALDO AWAL* = ${Number(r.saldoAwalTotal).toLocaleString('id-ID')}\n`;
       txt += `💰 Brangkas : ${Number(r.saldoAwalBrangkas).toLocaleString('id-ID')}\n`;
       txt += `💳 Rekening : ${Number(r.saldoAwalRekening).toLocaleString('id-ID')}\n`;
@@ -6703,9 +6829,9 @@
       const r = financeReportData;
       const chartImages = financeReportSections.chart ? collectFinanceReportChartImages_() : [];
       loadCompanySettings(function() {
-        const headerInfo = { cashierName: r.cashierName, cashierPosition: r.cashierPosition, reportDate: r.dateStr, logoUrl: r.logoUrl, nameLabel: 'Nama Petugas' };
+        const headerInfo = { cashierName: r.cashierName, cashierPosition: r.cashierPosition, reportDate: r.dateStr, logoUrl: r.logoUrl, nameLabel: 'Nama Petugas', signatures: PDF_SIGNATURES };
         let sections = buildFinanceReportPdfSections_(r);
-        exportToPdf('Laporan_Keuangan_' + r.dateStr + '.pdf', 'Laporan Harian Admin Keuangan', 'Tanggal Laporan: ' + fmtDate(r.dateStr), sections, headerInfo, chartImages, financeReportSections.orientation);
+        exportToPdf('Laporan_Keuangan_' + repFileSuffix_(r) + '.pdf', r.isRange ? 'Laporan Admin Keuangan' : 'Laporan Harian Admin Keuangan', (r.isRange ? 'Periode Laporan: ' : 'Tanggal Laporan: ') + repLabel_(r), sections, headerInfo, chartImages, financeReportSections.orientation);
         Toast.fire({ icon: 'success', title: 'Laporan berhasil diunduh' });
       });
     }
@@ -6791,7 +6917,7 @@
       const r = financeReportData;
       let sheets = buildFinanceReportXlsxSheets_(r);
       let chartImages = financeReportSections.chart ? collectFinanceReportChartImages_() : [];
-      await exportMultiSheetXlsxWithCharts_('Laporan_Keuangan_' + r.dateStr + '.xlsx', sheets, chartImages);
+      await exportMultiSheetXlsxWithCharts_('Laporan_Keuangan_' + repFileSuffix_(r) + '.xlsx', sheets, chartImages);
       Toast.fire({ icon: 'success', title: 'Laporan berhasil diunduh' });
     }
 
@@ -6811,7 +6937,7 @@
         <p class="text-muted mb-4">Report Semua Kasir (Kasir Loket Masuk + Kasir Loket Wahana + Kasir Resto)</p>
         <div class="card p-3 shadow-sm mb-3">
           <div class="d-flex flex-wrap gap-2 align-items-end">
-            <div><label class="form-label small mb-1">Tanggal</label><input type="date" id="akr-date" class="form-control" value="${allKasirReportDate}"></div>
+            ${repDateControlsHtml_('akr')}
             <button class="btn btn-primary" onclick="loadAllKasirReport()"><i class="fa-solid fa-magnifying-glass me-2"></i>Tampilkan</button>
             <button class="btn btn-outline-dark" onclick="openFinanceReportSectionsModal()"><i class="fa-solid fa-sliders me-2"></i>Atur Isi Laporan</button>
             <button class="btn btn-danger" onclick="downloadAllKasirReportPdf()"><i class="fa-solid fa-file-pdf me-2"></i>PDF</button>
@@ -6823,19 +6949,21 @@
     }
 
     function loadAllKasirReport() {
-      allKasirReportDate = $('#akr-date').val() || allKasirReportDate;
+      let st = repReadInputs_('akr');
+      allKasirReportDate = st.start;
       $('#akr-content').html('<div class="text-center text-muted p-5"><i class="fa-solid fa-spinner fa-spin fa-lg"></i></div>');
       google.script.run.withSuccessHandler(function(res) {
         if (!res.success) { $('#akr-content').html(''); return Swal.fire('Gagal', res.message, 'error'); }
         allKasirReportData = res;
         renderAllKasirReportContent(res);
-      }).withFailureHandler(errHandler).getAllKasirReportData(allKasirReportDate, sessionToken);
+      }).withFailureHandler(errHandler).getAllKasirReportData(st.start, sessionToken, st.end);
     }
 
     function renderAllKasirReportContent(r) {
       let t = r.totals;
       let balanceOk = Math.abs(t.selisih) < 1; // toleransi pembulatan Rp1
       let html = `
+        <div class="small text-muted mb-2">${r.isRange ? 'Periode' : 'Tanggal'} Laporan: <strong>${repLabel_(r)}</strong></div>
         <div class="card p-3 shadow-sm mb-3">
           <h6 class="fw-bold mb-2">Rekapan Total Penerimaan Seluruh Kasir (per Metode Pembayaran)</h6>
           <div class="table-responsive"><table class="table table-sm table-striped mb-1">
@@ -6908,10 +7036,10 @@
       const r = allKasirReportData;
       let balanceOk = Math.abs(r.totals.selisih) < 1;
       loadCompanySettings(function() {
-        const headerInfo = { cashierName: r.cashierName, cashierPosition: r.cashierPosition, reportDate: r.dateStr, logoUrl: r.logoUrl, nameLabel: 'Nama Petugas' };
+        const headerInfo = { cashierName: r.cashierName, cashierPosition: r.cashierPosition, reportDate: r.dateStr, logoUrl: r.logoUrl, nameLabel: 'Nama Petugas', signatures: PDF_SIGNATURES };
         let sections = buildAllKasirReportPdfSections_(r);
-        let subtitle = 'Tanggal Laporan: ' + fmtDate(r.dateStr) + '   |   Status: ' + (balanceOk ? 'BALANCE' : 'TIDAK BALANCE (selisih ' + fmtRp(Math.abs(r.totals.selisih)) + ')');
-        exportToPdf('Laporan_Semua_Kasir_' + r.dateStr + '.pdf', 'Report Semua Kasir', subtitle, sections, headerInfo, null, financeReportSections.orientation);
+        let subtitle = (r.isRange ? 'Periode Laporan: ' : 'Tanggal Laporan: ') + repLabel_(r) + '   |   Status: ' + (balanceOk ? 'BALANCE' : 'TIDAK BALANCE (selisih ' + fmtRp(Math.abs(r.totals.selisih)) + ')');
+        exportToPdf('Laporan_Semua_Kasir_' + repFileSuffix_(r) + '.pdf', 'Report Semua Kasir', subtitle, sections, headerInfo, null, financeReportSections.orientation);
         Toast.fire({ icon: 'success', title: 'Laporan berhasil diunduh' });
       });
     }
@@ -6946,7 +7074,7 @@
       if (!allKasirReportData) return;
       const r = allKasirReportData;
       let sheets = buildAllKasirReportXlsxSheets_(r);
-      await exportMultiSheetXlsx('Laporan_Semua_Kasir_' + r.dateStr + '.xlsx', sheets);
+      await exportMultiSheetXlsx('Laporan_Semua_Kasir_' + repFileSuffix_(r) + '.xlsx', sheets);
       Toast.fire({ icon: 'success', title: 'Laporan berhasil diunduh' });
     }
 
@@ -6995,7 +7123,7 @@
         title: 'Kirim Laporan ke Email',
         html: `
           <div class="text-start">
-            <p class="small text-muted mb-2">Pilih tujuan email penerima Laporan Harian Admin Keuangan tanggal ${esc(fmtDate(financeReportData.dateStr))}, atau kelola daftar tujuan di bawah.</p>
+            <p class="small text-muted mb-2">Pilih tujuan email penerima Laporan Harian Admin Keuangan ${financeReportData.isRange ? 'periode' : 'tanggal'} ${esc(repLabel_(financeReportData))}, atau kelola daftar tujuan di bawah.</p>
             <div id="fin-email-recipient-list" style="max-height:220px; overflow-y:auto;">${renderFinanceReportEmailListHtml_()}</div>
             <div class="d-flex gap-2 mt-2 mb-3">
               <input id="fin-email-new-name" class="form-control form-control-sm" placeholder="Nama (opsional)">
@@ -7106,14 +7234,14 @@
       Swal.fire({ title: 'Menyiapkan & mengirim laporan...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
       loadCompanySettings(async function() {
         try {
-          let payload = { dateStr: r.dateStr, recipients: opts.emails };
+          let payload = { dateStr: repIsoLabel_(r), recipients: opts.emails };
           if (opts.attachPdf) {
-            const headerInfo = { cashierName: r.cashierName, cashierPosition: r.cashierPosition, reportDate: r.dateStr, logoUrl: r.logoUrl, nameLabel: 'Nama Petugas' };
+            const headerInfo = { cashierName: r.cashierName, cashierPosition: r.cashierPosition, reportDate: r.dateStr, logoUrl: r.logoUrl, nameLabel: 'Nama Petugas', signatures: PDF_SIGNATURES };
             const chartImages = financeReportSections.chart ? collectFinanceReportChartImages_() : [];
             let sections = buildFinanceReportPdfSections_(r);
-            let doc = buildPdfDoc_('Laporan Harian Admin Keuangan', 'Tanggal Laporan: ' + fmtDate(r.dateStr), sections, headerInfo, chartImages, financeReportSections.orientation);
+            let doc = buildPdfDoc_(r.isRange ? 'Laporan Admin Keuangan' : 'Laporan Harian Admin Keuangan', (r.isRange ? 'Periode Laporan: ' : 'Tanggal Laporan: ') + repLabel_(r), sections, headerInfo, chartImages, financeReportSections.orientation);
             payload.pdfBase64 = doc.output('datauristring').split(',')[1];
-            payload.pdfFileName = 'Laporan_Keuangan_' + r.dateStr + '.pdf';
+            payload.pdfFileName = 'Laporan_Keuangan_' + repFileSuffix_(r) + '.pdf';
           }
           if (opts.attachXlsx) {
             // PERBAIKAN: sebelumnya pakai buildXlsxWorkbook_ (SheetJS) yang
@@ -7152,7 +7280,7 @@
             }
             const bufferEmail = await wbEmail.xlsx.writeBuffer();
             payload.xlsxBase64 = arrayBufferToBase64_(bufferEmail);
-            payload.xlsxFileName = 'Laporan_Keuangan_' + r.dateStr + '.xlsx';
+            payload.xlsxFileName = 'Laporan_Keuangan_' + repFileSuffix_(r) + '.xlsx';
           }
           google.script.run.withSuccessHandler(function(res) {
             Swal.close();
