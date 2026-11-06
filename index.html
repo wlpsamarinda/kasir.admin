@@ -148,7 +148,7 @@
       .auth-card { margin: 0 14px; }
       .btn-toolbar, .d-flex.gap-2 { flex-wrap: wrap; }
     }
-    /* --- Grid input Pengeluaran Harian --- */
+    /* --- Grid input Pembayaran --- */
     #fe-grid-modal .modal-content { background: var(--card-bg); color: var(--text-color); }
     #fe-grid-modal .fe-grid-wrap { border: 1px solid rgba(0,0,0,.1); border-radius: 10px; }
     #fe-grid-modal .fe-grid { min-width: 1500px; }
@@ -478,10 +478,13 @@
       return (r.endDateStr && r.endDateStr !== r.dateStr) ? (r.dateStr + '_sd_' + r.endDateStr) : r.dateStr;
     }
     // Kolom tanda tangan di akhir PDF (hanya PDF, tidak untuk XLSX/WA).
-    const PDF_SIGNATURES = [
-      { role: 'Admin Keuangan', name: 'Eli Yasar' },
-      { role: 'Manager Operasional', name: 'Eli Yasar' }
-    ];
+    // Admin Keuangan = nama user yang login; Manager Operasional tetap Eli Yasar.
+    function pdfSignatures_() {
+      return [
+        { role: 'Admin Keuangan', name: (currentUser && currentUser.fullName) || '-' },
+        { role: 'Manager Operasional', name: 'Eli Yasar' }
+      ];
+    }
 
     function buildPdfDoc_(title, subtitle, sections, headerInfo, chartImages, orientation) {
       // sections: [{ heading, headers, rows, totalLabel, totalValue }]
@@ -773,7 +776,8 @@
       if (role === 'Owner' || role === 'Admin' || role === 'Staff') {
         let financeSubmenu = `
                 <li><a onclick="loadView('finance-balance')" data-view="finance-balance"><span class="nav-text">${esc(mLabel('sub_finance_balance','Saldo &amp; Kas'))}</span></a></li>
-                <li><a onclick="loadView('finance-expenses')" data-view="finance-expenses"><span class="nav-text">${esc(mLabel('sub_finance_expenses','Pengeluaran Harian'))}</span></a></li>
+                <li><a onclick="loadView('finance-expenses')" data-view="finance-expenses"><span class="nav-text">${esc(mLabel('sub_finance_expenses','Pembayaran'))}</span></a></li>
+                <li><a onclick="loadView('finance-receipts')" data-view="finance-receipts"><span class="nav-text">${esc(mLabel('sub_finance_receipts','Penerimaan'))}</span></a></li>
                 <li><a onclick="loadView('finance-report')" data-view="finance-report"><span class="nav-text">${esc(mLabel('sub_finance_report','Report'))}</span></a></li>
                 <li><a onclick="loadView('finance-report-allkasir')" data-view="finance-report-allkasir"><span class="nav-text">${esc(mLabel('sub_finance_report_allkasir','Report Semua Kasir'))}</span></a></li>
                 <li class="menu-group-label" style="padding:10px 15px 2px;">Akuntansi</li>
@@ -885,6 +889,7 @@
       else if (view === 'report') { setActiveNav('report-'+param); renderReportView(area, param); }
       else if (view === 'finance-balance') { setActiveNav('finance-balance'); renderFinanceBalanceView(area); }
       else if (view === 'finance-expenses') { setActiveNav('finance-expenses'); renderFinanceExpensesView(area); }
+      else if (view === 'finance-receipts') { setActiveNav('finance-receipts'); renderFinanceReceiptsView(area); }
       else if (view === 'finance-master') { setActiveNav('finance-master'); renderFinanceMasterView(area); }
       else if (view === 'finance-report') { setActiveNav('finance-report'); renderFinanceReportView(area); }
       else if (view === 'finance-report-allkasir') { setActiveNav('finance-report-allkasir'); renderAllKasirReportView(area); }
@@ -1381,7 +1386,7 @@
     }
 
     const ASKAI_ACTIONS = {
-      // ===== Pengeluaran Harian =====
+      // ===== Pembayaran =====
       expense_add: { title: 'Tambah pengeluaran', async prepare(p) {
         const m = await askAiMaster_(); const errs = [];
         const list = Array.isArray(p.rows) ? p.rows : [p];
@@ -4965,7 +4970,7 @@
               <div id="fin-piutang-list" class="mb-2"></div>
               <button class="btn btn-sm btn-outline-secondary" onclick="addFinanceDebtRow('piutang')"><i class="fa-solid fa-plus me-1"></i>Tambah Piutang</button>
             </div>
-            <div class="alert alert-info mt-3 small mb-0"><i class="fa-solid fa-circle-info me-1"></i>Input detail Pengeluaran Harian (supplier, item, harga, status pembayaran, dsb) sekarang ada di menu <strong>Admin Keuangan &rsaquo; Pengeluaran Harian</strong>.</div>
+            <div class="alert alert-info mt-3 small mb-0"><i class="fa-solid fa-circle-info me-1"></i>Input detail Pembayaran (supplier, item, harga, status pembayaran, dsb) sekarang ada di menu <strong>Admin Keuangan &rsaquo; Pembayaran</strong>.</div>
           </div>
         </div>
         <div class="card p-4 shadow-sm mt-3">
@@ -5332,7 +5337,7 @@
     let financeCoaCache = [];
     let financeStatusCache = [];
     let financePosCache = [];
-    // Mode tampilan Pengeluaran Harian: 'day' (tanggal tertentu - default,
+    // Mode tampilan Pembayaran: 'day' (tanggal tertentu - default,
     // sama seperti sebelumnya), 'today', 'month', 'year', atau 'range'
     // (rentang tanggal bebas dari-sampai).
     let financeExpenseFilterMode = 'day';
@@ -5355,7 +5360,7 @@
     function renderFinanceExpensesView(area) {
       area.html(`
         <h2 class="fw-bold mb-1">Admin Keuangan</h2>
-        <p class="text-muted mb-4">Pengeluaran Harian</p>
+        <p class="text-muted mb-4">Pembayaran</p>
         <div class="card p-3 shadow-sm mb-3">
           <div class="d-flex flex-wrap gap-2 align-items-end">
             <div><label class="form-label small mb-1">Tampilkan</label>
@@ -5394,7 +5399,7 @@
       loadFinanceExpenses();
     }
 
-    // Bangun ulang input tanggal di toolbar Pengeluaran Harian sesuai mode
+    // Bangun ulang input tanggal di toolbar Pembayaran sesuai mode
     // yang sedang dipilih (tanggal tertentu / rentang bebas), atau kosong
     // untuk mode otomatis (Hari Ini/Bulan Ini/Tahun Ini yang tidak perlu
     // input tambahan).
@@ -5466,7 +5471,7 @@
       return 'bg-success';
     }
 
-    // ===== Export Pengeluaran Harian (periode yang sedang ditampilkan) =====
+    // ===== Export Pembayaran (periode yang sedang ditampilkan) =====
     function exportFinanceExpenses(format) {
       if (!financeExpenseCache.length) return Swal.fire('Perhatian', 'Tidak ada data pengeluaran untuk diexport pada periode ini.', 'warning');
       let rangeInfo = computeFinanceExpenseRange_();
@@ -5474,8 +5479,8 @@
       const rows = financeExpenseCache.map(e => [fmtDate(e.Date), e.Supplier || '-', e.Description, fmtRp(e.UnitPrice), e.Qty || 1, e.Unit || '-', fmtRp(e.Amount), e.StatusPembayaran || e.Category, e.COAName || '-', e.PosPenggunaan || '-']);
       let fileSuffix = rangeInfo.start === rangeInfo.end ? rangeInfo.start : (rangeInfo.start + '_sd_' + rangeInfo.end);
       let fileBase = 'PengeluaranHarian_' + fileSuffix;
-      if (format === 'pdf') exportToPdf(fileBase + '.pdf', 'Pengeluaran Harian', 'Periode: ' + rangeInfo.label, [{ headers, rows }]);
-      else exportToXlsx(fileBase + '.xlsx', 'Pengeluaran Harian', headers, rows);
+      if (format === 'pdf') exportToPdf(fileBase + '.pdf', 'Pembayaran', 'Periode: ' + rangeInfo.label, [{ headers, rows }]);
+      else exportToXlsx(fileBase + '.xlsx', 'Pembayaran', headers, rows);
       Toast.fire({ icon: 'success', title: 'File berhasil diunduh' });
     }
 
@@ -5615,7 +5620,7 @@
         let posOptions = '<option value="">-</option>' + financePosCache.map(p => `<option value="${esc(p.PosName)}" ${isEdit && e.PosPenggunaan===p.PosName?'selected':''}>${esc(p.PosName)}</option>`).join('');
 
         Swal.fire({
-          title: isEdit ? 'Edit Pengeluaran' : 'Tambah Pengeluaran Harian',
+          title: isEdit ? 'Edit Pembayaran' : 'Tambah Pembayaran',
           width: 620,
           html: `
             <div class="text-start">
@@ -5773,7 +5778,7 @@
             <div class="modal-dialog modal-fullscreen"><div class="modal-content">
               <div class="modal-header flex-wrap gap-2 align-items-start">
                 <div class="me-auto">
-                  <h5 class="modal-title fw-bold mb-0">Tambah Pengeluaran Harian</h5>
+                  <h5 class="modal-title fw-bold mb-0">Tambah Pembayaran</h5>
                   <div class="small text-muted">Isi data pada tabel (bisa banyak baris), lalu klik <strong>Simpan Semua</strong>. Baris yang masih kosong akan diabaikan. Tekan <kbd>Enter</kbd> untuk pindah ke baris berikutnya.</div>
                 </div>
                 <div class="d-flex gap-2">
@@ -5929,7 +5934,7 @@
     // ================= ADMIN KEUANGAN: MASTER KEUANGAN (Owner/Admin) =================
     // Kode Akun (COA), Kategori Status Pembayaran, dan Pos Penggunaan bisa
     // diatur & ditambah sendiri di sini - hasilnya langsung jadi pilihan
-    // dropdown di form Pengeluaran Harian.
+    // dropdown di form Pembayaran.
     function renderFinanceMasterView(area) {
       area.html(`
         <h2 class="fw-bold mb-1">Admin Keuangan</h2>
@@ -6458,7 +6463,7 @@
     // otomatis + jurnal manual). Report Admin Keuangan yang lama tidak berubah.
     REP_STATE.acc = Object.assign({ preset: 'month' }, repPresetRange_('month'));
     repReload_ = (function(orig) {
-      return function(k) { if (k === 'acc') loadAccounting(); else orig(k); };
+      return function(k) { if (k === 'acc') loadAccounting(); else if (k === 'rcv') loadFinanceReceipts(); else orig(k); };
     })(repReload_);
 
     const ACC_TITLES = {
@@ -6467,7 +6472,7 @@
     };
     const ACC_SRC_LABEL = {
       PENJUALAN: 'Penjualan', PENERIMAAN: 'Penerimaan', DP: 'DP', BEBAN: 'Pengeluaran', MUTASI: 'Mutasi',
-      SALDO: 'Saldo Awal', SELISIH: 'Penyesuaian', MANUAL: 'Manual'
+      SALDO: 'Saldo Awal', SELISIH: 'Penyesuaian', MANUAL: 'Manual', RCV_PIUTANG: 'Penerimaan Piutang', RCV_LAIN: 'Penerimaan Lain'
     };
     let accData = null, accTab = 'jurnal', accCurrent = null;
 
@@ -6711,7 +6716,7 @@
 
     // ---- Arus Kas (metode langsung) ----
     function accSecArusKas_(ix) {
-      let by = { PENERIMAAN: 0, DP: 0, BEBAN: 0, MUTASI: 0, MANUAL: 0, SELISIH: 0, SALDO: 0 };
+      let by = { PENERIMAAN: 0, DP: 0, RCV_PIUTANG: 0, RCV_LAIN: 0, BEBAN: 0, MUTASI: 0, MANUAL: 0, SELISIH: 0, SALDO: 0 };
       accData.entries.forEach(e => e.lines.forEach(l => {
         if (l.acc === '1101' || l.acc === '1102') by[e.src] = (by[e.src] || 0) + l.d - l.c;
       }));
@@ -6721,11 +6726,13 @@
       hdr('ARUS KAS DARI AKTIVITAS OPERASI');
       rows.push(['', 'Penerimaan dari penjualan (kasir)', by.PENERIMAAN]);
       rows.push(['', 'Penerimaan DP / uang muka pelanggan', by.DP]);
+      rows.push(['', 'Penerimaan piutang', by.RCV_PIUTANG]);
+      rows.push(['', 'Penerimaan lain (Pendapatan Minus F&B, Pendapatan Lainnya)', by.RCV_LAIN]);
       rows.push(['', 'Pembayaran beban & pengeluaran', by.BEBAN]);
       rows.push(['', 'Jurnal manual (kas/bank)', by.MANUAL]);
       rows.push(['', 'Selisih kas/bank terhadap saldo aktual', by.SELISIH]);
       rows.push(['', 'Mutasi antar Kas & Bank (netto)', by.MUTASI]);
-      let op = by.PENERIMAAN + by.DP + by.BEBAN + by.MANUAL + by.SELISIH + by.MUTASI;
+      let op = by.PENERIMAAN + by.DP + by.RCV_PIUTANG + by.RCV_LAIN + by.BEBAN + by.MANUAL + by.SELISIH + by.MUTASI;
       rows.push(['', 'Kas Bersih dari Aktivitas Operasi', op]); bold.push(rows.length - 1);
       hdr('ARUS KAS DARI AKTIVITAS INVESTASI');
       rows.push(['', 'Kas Bersih dari Aktivitas Investasi', 0]); bold.push(rows.length - 1);
@@ -6761,7 +6768,7 @@
           heading: s.heading, headers: s.headers,
           rows: (s.exportRows || s.rows).map(r => r.map((v, i) => (s.numCols || []).indexOf(i) !== -1 ? accNum_(v) : v))
         }));
-        const headerInfo = { cashierName: currentUser.fullName, cashierPosition: 'Admin Keuangan', reportDate: accData.end, logoUrl: companySettings.LOGO_URL, nameLabel: 'Nama Petugas', signatures: PDF_SIGNATURES };
+        const headerInfo = { cashierName: currentUser.fullName, cashierPosition: 'Admin Keuangan', reportDate: accData.end, logoUrl: companySettings.LOGO_URL, nameLabel: 'Nama Petugas', signatures: pdfSignatures_() };
         exportToPdf(fname + '.pdf', accCurrent.title, accPeriodLabel_(), sections, headerInfo, null, 'portrait');
         Toast.fire({ icon: 'success', title: 'PDF berhasil diunduh' });
       });
@@ -6828,6 +6835,158 @@
           Toast.fire({ icon: 'success', title: res.message });
           loadAccounting();
         }).withFailureHandler(errHandler).deleteManualJournal(id, sessionToken);
+      });
+    }
+
+
+    // ================= PENERIMAAN (Admin Keuangan) =================
+    // Input penerimaan di luar kasir loket: Piutang, Pendapatan Minus F&B,
+    // DP/Uang Muka Penjualan, Pendapatan Lainnya.
+    REP_STATE.rcv = Object.assign({ preset: 'month' }, repPresetRange_('month'));
+    let rcvData = null;
+    const RCV_TYPES = [
+      { key: 'Piutang', label: 'Penerimaan Piutang' },
+      { key: 'MinusFnB', label: 'Pendapatan Minus F&B' },
+      { key: 'DP', label: 'Pendapatan DP / Uang Muka Penjualan' },
+      { key: 'Lainnya', label: 'Pendapatan Lainnya' }
+    ];
+
+    function renderFinanceReceiptsView(area) {
+      rcvData = null;
+      area.html(`
+        <h2 class="fw-bold mb-1">Admin Keuangan</h2>
+        <p class="text-muted mb-4">${esc(mLabel('sub_finance_receipts', 'Penerimaan'))} &middot; Piutang, Pendapatan Minus F&amp;B, DP/Uang Muka Penjualan, dan pendapatan lainnya</p>
+        <div class="card p-3 shadow-sm mb-3">
+          <div class="d-flex flex-wrap gap-2 align-items-end">
+            ${repDateControlsHtml_('rcv')}
+            <div><label class="form-label small mb-1">Jenis</label><select id="rcv-type-filter" class="form-select" onchange="renderFinanceReceiptsContent()">
+              <option value="">Semua</option>${RCV_TYPES.map(t => `<option value="${t.key}">${esc(t.label)}</option>`).join('')}</select></div>
+            <button class="btn btn-primary" onclick="loadFinanceReceipts()"><i class="fa-solid fa-magnifying-glass me-2"></i>Tampilkan</button>
+            ${accCanWrite_() ? '<button class="btn btn-warning" onclick="openReceiptGridModal()"><i class="fa-solid fa-table-list me-2"></i>Input Penerimaan</button>' : ''}
+            <button class="btn btn-danger" onclick="exportFinanceReceipts('pdf')"><i class="fa-solid fa-file-pdf me-2"></i>PDF</button>
+            <button class="btn btn-success" onclick="exportFinanceReceipts('xlsx')"><i class="fa-solid fa-file-excel me-2"></i>XLSX</button>
+          </div>
+        </div>
+        <div id="rcv-content"><div class="text-center text-muted p-5"><i class="fa-solid fa-spinner fa-spin fa-lg"></i></div></div>`);
+      loadFinanceReceipts();
+    }
+
+    function loadFinanceReceipts() {
+      let st = repReadInputs_('rcv');
+      $('#rcv-content').html('<div class="text-center text-muted p-5"><i class="fa-solid fa-spinner fa-spin fa-lg"></i></div>');
+      google.script.run.withSuccessHandler(function(res) {
+        if (!res.success) { $('#rcv-content').html(''); return Swal.fire('Gagal', res.message, 'error'); }
+        rcvData = res;
+        renderFinanceReceiptsContent();
+      }).withFailureHandler(errHandler).getFinanceReceipts(st.start, st.end, sessionToken);
+    }
+
+    function rcvFiltered_() {
+      let f = $('#rcv-type-filter').val() || '';
+      return (rcvData ? rcvData.data : []).filter(r => !f || r.Type === f);
+    }
+    function rcvDestLabel_(d) { return d === 'Rekening' ? 'Rekening PT' : 'Brangkas'; }
+
+    function renderFinanceReceiptsContent() {
+      if (!rcvData) return;
+      let rows = rcvFiltered_();
+      let total = rows.reduce((t, r) => t + r.Amount, 0);
+      let cards = RCV_TYPES.map(t => {
+        let sum = rcvData.data.filter(r => r.Type === t.key).reduce((a, r) => a + r.Amount, 0);
+        return `<div class="col-6 col-lg-3"><div class="card p-3 shadow-sm"><h6 class="small text-muted mb-1">${esc(t.label)}</h6><div class="fw-bold">${fmtRp(sum)}</div></div></div>`;
+      }).join('');
+      let body = rows.map(r => `<tr>
+          <td>${fmtDate(r.Date)}</td><td>${esc(r.TypeLabel)}</td><td>${esc(r.Description)}</td>
+          <td>${esc(rcvDestLabel_(r.Destination))}</td><td class="text-end">${fmtRp(r.Amount)}</td>
+          <td class="text-end">${accCanWrite_() ? `<button class="btn btn-sm btn-outline-primary me-1" onclick="openReceiptGridModal('${esc(r.ReceiptID)}')"><i class="fa-solid fa-pen"></i></button><button class="btn btn-sm btn-outline-danger" onclick="deleteReceiptUi('${esc(r.ReceiptID)}')"><i class="fa-solid fa-trash"></i></button>` : ''}</td></tr>`).join('');
+      $('#rcv-content').html(`
+        <div class="row g-3 mb-3">${cards}</div>
+        <div class="card p-3 shadow-sm"><div class="table-responsive"><table class="table table-sm table-striped mb-0">
+          <thead><tr><th>Tanggal</th><th>Jenis</th><th>Keterangan</th><th>Masuk ke</th><th class="text-end">Jumlah</th><th></th></tr></thead>
+          <tbody>${body || '<tr><td colspan="6" class="text-center text-muted">Belum ada penerimaan pada periode ini.</td></tr>'}</tbody>
+          <tfoot><tr class="fw-bold table-light"><td colspan="4" class="text-end">TOTAL</td><td class="text-end">${fmtRp(total)}</td><td></td></tr></tfoot>
+        </table></div></div>
+        <div class="small text-muted mt-2">Penerimaan di sini otomatis menambah saldo Brangkas/Rekening PT pada tanggalnya dan masuk ke jurnal akuntansi.</div>`);
+    }
+
+    function openReceiptGridModal(editId) {
+      let editRow = editId ? (rcvData.data.find(r => r.ReceiptID === editId) || null) : null;
+      const typeOpts = RCV_TYPES.map(t => `<option value="${t.key}">${esc(t.label)}</option>`).join('');
+      const rowHtml = (r) => `<tr data-id="${esc((r && r.ReceiptID) || '')}">
+        <td><input type="date" class="form-control form-control-sm rc-date" value="${esc((r && r.Date) || todayStr())}"></td>
+        <td><select class="form-select form-select-sm rc-type">${typeOpts}</select></td>
+        <td><input type="text" class="form-control form-control-sm rc-desc" placeholder="Keterangan / nama pihak" value="${esc((r && r.Description) || '')}"></td>
+        <td><input type="number" min="0" step="any" class="form-control form-control-sm rc-amt" value="${r ? r.Amount : ''}"></td>
+        <td><select class="form-select form-select-sm rc-dest"><option value="Brangkas">Brangkas</option><option value="Rekening">Rekening PT</option></select></td>
+        <td>${editRow ? '' : '<button type="button" class="btn btn-sm btn-outline-danger rc-del"><i class="fa-solid fa-xmark"></i></button>'}</td></tr>`;
+      Swal.fire({
+        title: editRow ? 'Edit Penerimaan' : 'Input Penerimaan', width: 1000, showCancelButton: true, confirmButtonText: 'Simpan Semua', cancelButtonText: 'Batal',
+        html: `<div class="text-start"><div class="table-responsive"><table class="table table-sm mb-1">
+          <thead><tr><th style="width:135px">Tanggal</th><th style="width:230px">Jenis</th><th>Keterangan</th><th style="width:140px">Jumlah</th><th style="width:130px">Masuk ke</th><th style="width:36px"></th></tr></thead>
+          <tbody id="rc-lines">${rowHtml(editRow)}${editRow ? '' : rowHtml(null) + rowHtml(null) + rowHtml(null)}</tbody></table></div>
+          ${editRow ? '' : '<button type="button" class="btn btn-sm btn-outline-primary" id="rc-add"><i class="fa-solid fa-plus me-1"></i>Tambah Baris</button>'}
+          <div class="mt-2 small fw-semibold" id="rc-total"></div></div>`,
+        didOpen: function() {
+          if (editRow) { $('#rc-lines .rc-type').val(editRow.Type); $('#rc-lines .rc-dest').val(editRow.Destination === 'Rekening' ? 'Rekening' : 'Brangkas'); }
+          const totals = function() { let t = 0; $('#rc-lines .rc-amt').each(function() { t += Number($(this).val()) || 0; }); $('#rc-total').text('Total: ' + fmtRp(t)); };
+          $('#rc-lines').on('input', '.rc-amt', totals);
+          $('#rc-lines').on('click', '.rc-del', function() { if ($('#rc-lines tr').length > 1) { $(this).closest('tr').remove(); totals(); } });
+          $('#rc-add').on('click', function() { $('#rc-lines').append(rowHtml(null)); });
+          totals();
+        },
+        preConfirm: function() {
+          let rows = [], bad = '';
+          $('#rc-lines tr').each(function(i) {
+            let $r = $(this), amt = Number($r.find('.rc-amt').val()) || 0, desc = ($r.find('.rc-desc').val() || '').trim();
+            let id = $r.attr('data-id') || '';
+            if (!id && !amt && !desc) return; // baris kosong diabaikan
+            if (amt <= 0) { bad = 'Baris ' + (i + 1) + ': jumlah harus lebih dari 0.'; return false; }
+            if (!$r.find('.rc-date').val()) { bad = 'Baris ' + (i + 1) + ': tanggal wajib diisi.'; return false; }
+            rows.push({ ReceiptID: id, Date: $r.find('.rc-date').val(), Type: $r.find('.rc-type').val(), Description: desc, Amount: amt, Destination: $r.find('.rc-dest').val() });
+          });
+          if (bad) return Swal.showValidationMessage(bad);
+          if (!rows.length) return Swal.showValidationMessage('Isi minimal satu baris penerimaan.');
+          return rows;
+        }
+      }).then(function(r) {
+        if (!r.isConfirmed) return;
+        Swal.fire({ title: 'Menyimpan...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+        google.script.run.withSuccessHandler(function(res) {
+          Swal.close();
+          if (!res.success) return Swal.fire('Gagal', res.message, 'error');
+          Toast.fire({ icon: 'success', title: res.message });
+          loadFinanceReceipts();
+        }).withFailureHandler(errHandler).saveFinanceReceipts(r.value, sessionToken);
+      });
+    }
+
+    function deleteReceiptUi(id) {
+      Swal.fire({ title: 'Hapus penerimaan ini?', text: 'Saldo Brangkas/Rekening tanggal terkait akan dihitung ulang.', icon: 'warning', showCancelButton: true, confirmButtonText: 'Hapus', cancelButtonText: 'Batal' }).then(function(r) {
+        if (!r.isConfirmed) return;
+        google.script.run.withSuccessHandler(function(res) {
+          if (!res.success) return Swal.fire('Gagal', res.message, 'error');
+          Toast.fire({ icon: 'success', title: res.message });
+          loadFinanceReceipts();
+        }).withFailureHandler(errHandler).deleteFinanceReceipt(id, sessionToken);
+      });
+    }
+
+    function exportFinanceReceipts(kind) {
+      if (!rcvData) return;
+      let rows = rcvFiltered_();
+      let headers = ['Tanggal', 'Jenis', 'Keterangan', 'Masuk ke', 'Jumlah'];
+      let total = rows.reduce((t, r) => t + r.Amount, 0);
+      let label = rcvData.start === rcvData.end ? fmtDate(rcvData.end) : fmtDate(rcvData.start) + ' s/d ' + fmtDate(rcvData.end);
+      let fname = 'Penerimaan_' + rcvData.start + (rcvData.end !== rcvData.start ? '_sd_' + rcvData.end : '');
+      if (kind === 'xlsx') {
+        exportToXlsx(fname + '.xlsx', 'Penerimaan', headers, rows.map(r => [fmtDate(r.Date), r.TypeLabel, r.Description, rcvDestLabel_(r.Destination), r.Amount]).concat([['', '', '', 'TOTAL', total]]));
+        return;
+      }
+      loadCompanySettings(function() {
+        const headerInfo = { cashierName: currentUser.fullName, cashierPosition: 'Admin Keuangan', reportDate: rcvData.end, logoUrl: companySettings.LOGO_URL, nameLabel: 'Nama Petugas', signatures: pdfSignatures_() };
+        exportToPdf(fname + '.pdf', 'Laporan Penerimaan', 'Periode: ' + label,
+          [{ headers: headers, rows: rows.map(r => [fmtDate(r.Date), r.TypeLabel, r.Description, rcvDestLabel_(r.Destination), accNum_(r.Amount)]), totalLabel: 'TOTAL', totalValue: accNum_(total) }],
+          headerInfo, null, 'portrait');
       });
     }
 
@@ -7245,7 +7404,7 @@
       const r = financeReportData;
       const chartImages = financeReportSections.chart ? collectFinanceReportChartImages_() : [];
       loadCompanySettings(function() {
-        const headerInfo = { cashierName: r.cashierName, cashierPosition: r.cashierPosition, reportDate: r.dateStr, logoUrl: r.logoUrl, nameLabel: 'Nama Petugas', signatures: PDF_SIGNATURES };
+        const headerInfo = { cashierName: r.cashierName, cashierPosition: r.cashierPosition, reportDate: r.dateStr, logoUrl: r.logoUrl, nameLabel: 'Nama Petugas', signatures: pdfSignatures_() };
         let sections = buildFinanceReportPdfSections_(r);
         exportToPdf('Laporan_Keuangan_' + repFileSuffix_(r) + '.pdf', r.isRange ? 'Laporan Admin Keuangan' : 'Laporan Harian Admin Keuangan', (r.isRange ? 'Periode Laporan: ' : 'Tanggal Laporan: ') + repLabel_(r), sections, headerInfo, chartImages, financeReportSections.orientation);
         Toast.fire({ icon: 'success', title: 'Laporan berhasil diunduh' });
@@ -7452,7 +7611,7 @@
       const r = allKasirReportData;
       let balanceOk = Math.abs(r.totals.selisih) < 1;
       loadCompanySettings(function() {
-        const headerInfo = { cashierName: r.cashierName, cashierPosition: r.cashierPosition, reportDate: r.dateStr, logoUrl: r.logoUrl, nameLabel: 'Nama Petugas', signatures: PDF_SIGNATURES };
+        const headerInfo = { cashierName: r.cashierName, cashierPosition: r.cashierPosition, reportDate: r.dateStr, logoUrl: r.logoUrl, nameLabel: 'Nama Petugas', signatures: pdfSignatures_() };
         let sections = buildAllKasirReportPdfSections_(r);
         let subtitle = (r.isRange ? 'Periode Laporan: ' : 'Tanggal Laporan: ') + repLabel_(r) + '   |   Status: ' + (balanceOk ? 'BALANCE' : 'TIDAK BALANCE (selisih ' + fmtRp(Math.abs(r.totals.selisih)) + ')');
         exportToPdf('Laporan_Semua_Kasir_' + repFileSuffix_(r) + '.pdf', 'Report Semua Kasir', subtitle, sections, headerInfo, null, financeReportSections.orientation);
@@ -7652,7 +7811,7 @@
         try {
           let payload = { dateStr: repIsoLabel_(r), recipients: opts.emails };
           if (opts.attachPdf) {
-            const headerInfo = { cashierName: r.cashierName, cashierPosition: r.cashierPosition, reportDate: r.dateStr, logoUrl: r.logoUrl, nameLabel: 'Nama Petugas', signatures: PDF_SIGNATURES };
+            const headerInfo = { cashierName: r.cashierName, cashierPosition: r.cashierPosition, reportDate: r.dateStr, logoUrl: r.logoUrl, nameLabel: 'Nama Petugas', signatures: pdfSignatures_() };
             const chartImages = financeReportSections.chart ? collectFinanceReportChartImages_() : [];
             let sections = buildFinanceReportPdfSections_(r);
             let doc = buildPdfDoc_(r.isRange ? 'Laporan Admin Keuangan' : 'Laporan Harian Admin Keuangan', (r.isRange ? 'Periode Laporan: ' : 'Tanggal Laporan: ') + repLabel_(r), sections, headerInfo, chartImages, financeReportSections.orientation);
