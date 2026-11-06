@@ -6727,7 +6727,7 @@
       rows.push(['', 'Penerimaan dari penjualan (kasir)', by.PENERIMAAN]);
       rows.push(['', 'Penerimaan DP / uang muka pelanggan', by.DP]);
       rows.push(['', 'Penerimaan piutang', by.RCV_PIUTANG]);
-      rows.push(['', 'Penerimaan lain (Pendapatan Minus F&B, Pendapatan Lainnya)', by.RCV_LAIN]);
+      rows.push(['', 'Penerimaan lain (Minus F&B, Bunga Bank, Selisih QRIS, Lainnya)', by.RCV_LAIN]);
       rows.push(['', 'Pembayaran beban & pengeluaran', by.BEBAN]);
       rows.push(['', 'Jurnal manual (kas/bank)', by.MANUAL]);
       rows.push(['', 'Selisih kas/bank terhadap saldo aktual', by.SELISIH]);
@@ -6848,6 +6848,8 @@
       { key: 'Piutang', label: 'Penerimaan Piutang' },
       { key: 'MinusFnB', label: 'Pendapatan Minus F&B' },
       { key: 'DP', label: 'Pendapatan DP / Uang Muka Penjualan' },
+      { key: 'BungaBank', label: 'Penerimaan Bunga Bank' },
+      { key: 'SelisihQRIS', label: 'Penerimaan Selisih QRIS' },
       { key: 'Lainnya', label: 'Pendapatan Lainnya' }
     ];
 
@@ -6891,20 +6893,15 @@
       if (!rcvData) return;
       let rows = rcvFiltered_();
       let total = rows.reduce((t, r) => t + r.Amount, 0);
-      let cards = RCV_TYPES.map(t => {
-        let sum = rcvData.data.filter(r => r.Type === t.key).reduce((a, r) => a + r.Amount, 0);
-        return `<div class="col-6 col-lg-3"><div class="card p-3 shadow-sm"><h6 class="small text-muted mb-1">${esc(t.label)}</h6><div class="fw-bold">${fmtRp(sum)}</div></div></div>`;
-      }).join('');
       let body = rows.map(r => `<tr>
-          <td>${fmtDate(r.Date)}</td><td>${esc(r.TypeLabel)}</td><td>${esc(r.Description)}</td>
+          <td>${fmtDate(r.Date)}</td><td>${esc(r.TypeLabel)}</td><td>${esc(r.Description)}</td><td class="text-end">${r.Qty}</td>
           <td>${esc(rcvDestLabel_(r.Destination))}</td><td class="text-end">${fmtRp(r.Amount)}</td>
           <td class="text-end">${accCanWrite_() ? `<button class="btn btn-sm btn-outline-primary me-1" onclick="openReceiptGridModal('${esc(r.ReceiptID)}')"><i class="fa-solid fa-pen"></i></button><button class="btn btn-sm btn-outline-danger" onclick="deleteReceiptUi('${esc(r.ReceiptID)}')"><i class="fa-solid fa-trash"></i></button>` : ''}</td></tr>`).join('');
       $('#rcv-content').html(`
-        <div class="row g-3 mb-3">${cards}</div>
         <div class="card p-3 shadow-sm"><div class="table-responsive"><table class="table table-sm table-striped mb-0">
-          <thead><tr><th>Tanggal</th><th>Jenis</th><th>Keterangan</th><th>Masuk ke</th><th class="text-end">Jumlah</th><th></th></tr></thead>
-          <tbody>${body || '<tr><td colspan="6" class="text-center text-muted">Belum ada penerimaan pada periode ini.</td></tr>'}</tbody>
-          <tfoot><tr class="fw-bold table-light"><td colspan="4" class="text-end">TOTAL</td><td class="text-end">${fmtRp(total)}</td><td></td></tr></tfoot>
+          <thead><tr><th>Tanggal</th><th>Jenis</th><th>Keterangan</th><th class="text-end">Qty</th><th>Masuk ke</th><th class="text-end">Jumlah</th><th></th></tr></thead>
+          <tbody>${body || '<tr><td colspan="7" class="text-center text-muted">Belum ada penerimaan pada periode ini.</td></tr>'}</tbody>
+          <tfoot><tr class="fw-bold table-light"><td colspan="3" class="text-end">TOTAL</td><td class="text-end">${rows.reduce((t, r) => t + r.Qty, 0)}</td><td></td><td class="text-end">${fmtRp(total)}</td><td></td></tr></tfoot>
         </table></div></div>
         <div class="small text-muted mt-2">Penerimaan di sini otomatis menambah saldo Brangkas/Rekening PT pada tanggalnya dan masuk ke jurnal akuntansi.</div>`);
     }
@@ -6916,13 +6913,14 @@
         <td><input type="date" class="form-control form-control-sm rc-date" value="${esc((r && r.Date) || todayStr())}"></td>
         <td><select class="form-select form-select-sm rc-type">${typeOpts}</select></td>
         <td><input type="text" class="form-control form-control-sm rc-desc" placeholder="Keterangan / nama pihak" value="${esc((r && r.Description) || '')}"></td>
+        <td><input type="number" min="0" step="any" class="form-control form-control-sm rc-qty" value="${r ? r.Qty : 1}"></td>
         <td><input type="number" min="0" step="any" class="form-control form-control-sm rc-amt" value="${r ? r.Amount : ''}"></td>
         <td><select class="form-select form-select-sm rc-dest"><option value="Brangkas">Brangkas</option><option value="Rekening">Rekening PT</option></select></td>
         <td>${editRow ? '' : '<button type="button" class="btn btn-sm btn-outline-danger rc-del"><i class="fa-solid fa-xmark"></i></button>'}</td></tr>`;
       Swal.fire({
         title: editRow ? 'Edit Penerimaan' : 'Input Penerimaan', width: 1000, showCancelButton: true, confirmButtonText: 'Simpan Semua', cancelButtonText: 'Batal',
         html: `<div class="text-start"><div class="table-responsive"><table class="table table-sm mb-1">
-          <thead><tr><th style="width:135px">Tanggal</th><th style="width:230px">Jenis</th><th>Keterangan</th><th style="width:140px">Jumlah</th><th style="width:130px">Masuk ke</th><th style="width:36px"></th></tr></thead>
+          <thead><tr><th style="width:135px">Tanggal</th><th style="width:230px">Jenis</th><th>Keterangan</th><th style="width:80px">Qty</th><th style="width:140px">Jumlah (Rp)</th><th style="width:130px">Masuk ke</th><th style="width:36px"></th></tr></thead>
           <tbody id="rc-lines">${rowHtml(editRow)}${editRow ? '' : rowHtml(null) + rowHtml(null) + rowHtml(null)}</tbody></table></div>
           ${editRow ? '' : '<button type="button" class="btn btn-sm btn-outline-primary" id="rc-add"><i class="fa-solid fa-plus me-1"></i>Tambah Baris</button>'}
           <div class="mt-2 small fw-semibold" id="rc-total"></div></div>`,
@@ -6939,10 +6937,12 @@
           $('#rc-lines tr').each(function(i) {
             let $r = $(this), amt = Number($r.find('.rc-amt').val()) || 0, desc = ($r.find('.rc-desc').val() || '').trim();
             let id = $r.attr('data-id') || '';
-            if (!id && !amt && !desc) return; // baris kosong diabaikan
+            if (!id && !amt && !desc) return;
+            let qty = Number($r.find('.rc-qty').val()) || 0;
+            if (qty <= 0) { bad = 'Baris ' + (i + 1) + ': Qty harus lebih dari 0.'; return false; } // baris kosong diabaikan
             if (amt <= 0) { bad = 'Baris ' + (i + 1) + ': jumlah harus lebih dari 0.'; return false; }
             if (!$r.find('.rc-date').val()) { bad = 'Baris ' + (i + 1) + ': tanggal wajib diisi.'; return false; }
-            rows.push({ ReceiptID: id, Date: $r.find('.rc-date').val(), Type: $r.find('.rc-type').val(), Description: desc, Amount: amt, Destination: $r.find('.rc-dest').val() });
+            rows.push({ ReceiptID: id, Date: $r.find('.rc-date').val(), Type: $r.find('.rc-type').val(), Description: desc, Qty: qty, Amount: amt, Destination: $r.find('.rc-dest').val() });
           });
           if (bad) return Swal.showValidationMessage(bad);
           if (!rows.length) return Swal.showValidationMessage('Isi minimal satu baris penerimaan.');
@@ -6974,18 +6974,18 @@
     function exportFinanceReceipts(kind) {
       if (!rcvData) return;
       let rows = rcvFiltered_();
-      let headers = ['Tanggal', 'Jenis', 'Keterangan', 'Masuk ke', 'Jumlah'];
+      let headers = ['Tanggal', 'Jenis', 'Keterangan', 'Qty', 'Masuk ke', 'Jumlah'];
       let total = rows.reduce((t, r) => t + r.Amount, 0);
       let label = rcvData.start === rcvData.end ? fmtDate(rcvData.end) : fmtDate(rcvData.start) + ' s/d ' + fmtDate(rcvData.end);
       let fname = 'Penerimaan_' + rcvData.start + (rcvData.end !== rcvData.start ? '_sd_' + rcvData.end : '');
       if (kind === 'xlsx') {
-        exportToXlsx(fname + '.xlsx', 'Penerimaan', headers, rows.map(r => [fmtDate(r.Date), r.TypeLabel, r.Description, rcvDestLabel_(r.Destination), r.Amount]).concat([['', '', '', 'TOTAL', total]]));
+        exportToXlsx(fname + '.xlsx', 'Penerimaan', headers, rows.map(r => [fmtDate(r.Date), r.TypeLabel, r.Description, r.Qty, rcvDestLabel_(r.Destination), r.Amount]).concat([['', '', '', '', 'TOTAL', total]]));
         return;
       }
       loadCompanySettings(function() {
         const headerInfo = { cashierName: currentUser.fullName, cashierPosition: 'Admin Keuangan', reportDate: rcvData.end, logoUrl: companySettings.LOGO_URL, nameLabel: 'Nama Petugas', signatures: pdfSignatures_() };
         exportToPdf(fname + '.pdf', 'Laporan Penerimaan', 'Periode: ' + label,
-          [{ headers: headers, rows: rows.map(r => [fmtDate(r.Date), r.TypeLabel, r.Description, rcvDestLabel_(r.Destination), accNum_(r.Amount)]), totalLabel: 'TOTAL', totalValue: accNum_(total) }],
+          [{ headers: headers, rows: rows.map(r => [fmtDate(r.Date), r.TypeLabel, r.Description, r.Qty, rcvDestLabel_(r.Destination), accNum_(r.Amount)]), totalLabel: 'TOTAL', totalValue: accNum_(total) }],
           headerInfo, null, 'portrait');
       });
     }
