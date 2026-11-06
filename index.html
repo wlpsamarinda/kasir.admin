@@ -775,7 +775,15 @@
                 <li><a onclick="loadView('finance-balance')" data-view="finance-balance"><span class="nav-text">${esc(mLabel('sub_finance_balance','Saldo &amp; Kas'))}</span></a></li>
                 <li><a onclick="loadView('finance-expenses')" data-view="finance-expenses"><span class="nav-text">${esc(mLabel('sub_finance_expenses','Pengeluaran Harian'))}</span></a></li>
                 <li><a onclick="loadView('finance-report')" data-view="finance-report"><span class="nav-text">${esc(mLabel('sub_finance_report','Report'))}</span></a></li>
-                <li><a onclick="loadView('finance-report-allkasir')" data-view="finance-report-allkasir"><span class="nav-text">${esc(mLabel('sub_finance_report_allkasir','Report Semua Kasir'))}</span></a></li>`;
+                <li><a onclick="loadView('finance-report-allkasir')" data-view="finance-report-allkasir"><span class="nav-text">${esc(mLabel('sub_finance_report_allkasir','Report Semua Kasir'))}</span></a></li>
+                <li class="menu-group-label" style="padding:10px 15px 2px;">Akuntansi</li>
+                <li><a onclick="loadView('acc-jurnal')" data-view="acc-jurnal"><span class="nav-text">${esc(mLabel('sub_acc_jurnal','Jurnal Umum'))}</span></a></li>
+                <li><a onclick="loadView('acc-bukubesar')" data-view="acc-bukubesar"><span class="nav-text">${esc(mLabel('sub_acc_bukubesar','Buku Besar'))}</span></a></li>
+                <li><a onclick="loadView('acc-kasbank')" data-view="acc-kasbank"><span class="nav-text">${esc(mLabel('sub_acc_kasbank','Buku Kas & Bank'))}</span></a></li>
+                <li><a onclick="loadView('acc-neracasaldo')" data-view="acc-neracasaldo"><span class="nav-text">${esc(mLabel('sub_acc_neracasaldo','Neraca Saldo'))}</span></a></li>
+                <li><a onclick="loadView('acc-labarugi')" data-view="acc-labarugi"><span class="nav-text">${esc(mLabel('sub_acc_labarugi','Laba Rugi'))}</span></a></li>
+                <li><a onclick="loadView('acc-neraca')" data-view="acc-neraca"><span class="nav-text">${esc(mLabel('sub_acc_neraca','Neraca'))}</span></a></li>
+                <li><a onclick="loadView('acc-aruskas')" data-view="acc-aruskas"><span class="nav-text">${esc(mLabel('sub_acc_aruskas','Laporan Arus Kas'))}</span></a></li>`;
         if (role === 'Owner' || role === 'Admin') {
           financeSubmenu += `<li><a onclick="loadView('finance-master')" data-view="finance-master"><span class="nav-text">${esc(mLabel('sub_finance_master','Master Keuangan'))}</span></a></li>`;
         }
@@ -880,6 +888,7 @@
       else if (view === 'finance-master') { setActiveNav('finance-master'); renderFinanceMasterView(area); }
       else if (view === 'finance-report') { setActiveNav('finance-report'); renderFinanceReportView(area); }
       else if (view === 'finance-report-allkasir') { setActiveNav('finance-report-allkasir'); renderAllKasirReportView(area); }
+      else if (view.indexOf('acc-') === 0) { setActiveNav(view); renderAccountingView(area, view.slice(4)); }
       else if (view === 'placeholder') {
         area.html(`<h2 class="fw-bold mb-4">${param}</h2><div class="card p-4 shadow-sm"><p class="text-muted mb-0"><i class="fa-solid fa-hourglass-half me-2"></i>Modul ini akan menyusul pada tahap pengembangan berikutnya.</p></div>`);
       }
@@ -6443,6 +6452,385 @@
         }
       });
     }
+
+    // ================= AKUNTANSI (Jurnal, Buku Besar, Kas & Bank, dst.) =================
+    // Semua laporan dihitung di sini dari data getAccountingData() (jurnal
+    // otomatis + jurnal manual). Report Admin Keuangan yang lama tidak berubah.
+    REP_STATE.acc = Object.assign({ preset: 'month' }, repPresetRange_('month'));
+    repReload_ = (function(orig) {
+      return function(k) { if (k === 'acc') loadAccounting(); else orig(k); };
+    })(repReload_);
+
+    const ACC_TITLES = {
+      jurnal: 'Jurnal Umum', bukubesar: 'Buku Besar', kasbank: 'Buku Kas & Bank', neracasaldo: 'Neraca Saldo',
+      labarugi: 'Laporan Laba Rugi', neraca: 'Neraca', aruskas: 'Laporan Arus Kas'
+    };
+    const ACC_SRC_LABEL = {
+      PENJUALAN: 'Penjualan', PENERIMAAN: 'Penerimaan', DP: 'DP', BEBAN: 'Pengeluaran', MUTASI: 'Mutasi',
+      SALDO: 'Saldo Awal', SELISIH: 'Penyesuaian', MANUAL: 'Manual'
+    };
+    let accData = null, accTab = 'jurnal', accCurrent = null;
+
+    function accNum_(v) {
+      if (v === '' || v === null || v === undefined) return '';
+      let n = Number(v) || 0;
+      return (n < 0 ? '-' : '') + Math.abs(n).toLocaleString('id-ID', { maximumFractionDigits: 2 });
+    }
+    function accCanWrite_() { return currentUser && (currentUser.role === 'Owner' || currentUser.role === 'Admin'); }
+    function accIsDebitNormal_(type) { return type === 'A' || type === 'B'; }
+
+    // Indeks akun, saldo awal, dan mutasi per akun
+    function accIndex_() {
+      let map = {}, open = {}, mv = {};
+      accData.accounts.forEach(a => { map[a.code] = a; mv[a.code] = { d: 0, c: 0 }; open[a.code] = Number((accData.opening || {})[a.code]) || 0; });
+      accData.entries.forEach(e => e.lines.forEach(l => {
+        if (!mv[l.acc]) { mv[l.acc] = { d: 0, c: 0 }; }
+        mv[l.acc].d += l.d; mv[l.acc].c += l.c;
+      }));
+      return { map: map, open: open, mv: mv };
+    }
+    function accLabel_(map, code) { return code + ' - ' + ((map[code] && map[code].name) || code); }
+    // Saldo "natural" akun dari nilai net (debit - kredit)
+    function accNat_(map, code, net) { return accIsDebitNormal_((map[code] || {}).type) ? net : -net; }
+
+    function renderAccountingView(area, tab) {
+      accTab = tab; accData = null;
+      let selects = '';
+      if (tab === 'bukubesar') selects += `<div><label class="form-label small mb-1">Akun</label><select id="acc-ledger-sel" class="form-select" onchange="renderAccountingContent()"><option value="">Semua Akun</option></select></div>`;
+      if (tab === 'jurnal') selects += `<div><label class="form-label small mb-1">Jenis Jurnal</label><select id="acc-src-filter" class="form-select" onchange="renderAccountingContent()"><option value="">Semua</option><option value="auto">Otomatis</option><option value="manual">Manual</option></select></div>`;
+      area.html(`
+        <h2 class="fw-bold mb-1">Admin Keuangan</h2>
+        <p class="text-muted mb-4">${esc(mLabel('sub_acc_' + tab, ACC_TITLES[tab]))} &middot; Akuntansi (akrual sederhana, jurnal otomatis dari transaksi)</p>
+        <div class="card p-3 shadow-sm mb-3">
+          <div class="d-flex flex-wrap gap-2 align-items-end">
+            ${tab === 'neraca' ? '' : repDateControlsHtml_('acc')}
+            ${tab === 'neraca' ? `<div><label class="form-label small mb-1">Per Tanggal</label><input type="date" id="acc-end" class="form-control" value="${REP_STATE.acc.end}"></div>` : ''}
+            ${selects}
+            <button class="btn btn-primary" onclick="loadAccounting()"><i class="fa-solid fa-magnifying-glass me-2"></i>Tampilkan</button>
+            ${tab === 'jurnal' && accCanWrite_() ? '<button class="btn btn-warning" onclick="openManualJournalModal()"><i class="fa-solid fa-plus me-2"></i>Jurnal Manual</button>' : ''}
+            <button class="btn btn-danger" onclick="accExport('pdf')"><i class="fa-solid fa-file-pdf me-2"></i>PDF</button>
+            <button class="btn btn-success" onclick="accExport('xlsx')"><i class="fa-solid fa-file-excel me-2"></i>XLSX</button>
+          </div>
+        </div>
+        <div id="acc-content"><div class="text-center text-muted p-5"><i class="fa-solid fa-spinner fa-spin fa-lg"></i></div></div>`);
+      loadAccounting();
+    }
+
+    function loadAccounting() {
+      let st;
+      if (accTab === 'neraca') {
+        // Neraca per tanggal: seluruh jurnal sejak awal pembukuan s/d tanggal tsb.
+        let e = $('#acc-end').val() || REP_STATE.acc.end;
+        REP_STATE.acc.end = e; st = { start: '1900-01-01', end: e };
+      } else {
+        st = repReadInputs_('acc');
+      }
+      $('#acc-content').html('<div class="text-center text-muted p-5"><i class="fa-solid fa-spinner fa-spin fa-lg"></i></div>');
+      google.script.run.withSuccessHandler(function(res) {
+        if (!res.success) { $('#acc-content').html(''); return Swal.fire('Gagal', res.message, 'error'); }
+        accData = res;
+        if (accTab === 'bukubesar') {
+          let cur = $('#acc-ledger-sel').val() || '';
+          $('#acc-ledger-sel').html('<option value="">Semua Akun</option>' + res.accounts.map(a => `<option value="${esc(a.code)}">${esc(a.code + ' - ' + a.name)}</option>`).join('')).val(cur);
+        }
+        renderAccountingContent();
+      }).withFailureHandler(errHandler).getAccountingData(st.start, st.end, sessionToken);
+    }
+
+    // ---- generator tabel (layar + bahan ekspor) ----
+    // sec: { heading, headers, rows, numCols:[idx], bold:[rowIdx], actions:[html] }
+    function accTableHtml_(sec) {
+      let nums = sec.numCols || [], bold = sec.bold || [];
+      let head = sec.headers.map((h, i) => `<th class="${nums.indexOf(i) !== -1 ? 'text-end' : ''}">${esc(h)}</th>`).join('') + (sec.actions ? '<th></th>' : '');
+      let body = sec.rows.map((r, ri) => `<tr class="${bold.indexOf(ri) !== -1 ? 'fw-bold table-light' : ''}">` +
+        r.map((v, i) => `<td class="${nums.indexOf(i) !== -1 ? 'text-end' : ''}">${nums.indexOf(i) !== -1 ? accNum_(v) : esc(v)}</td>`).join('') +
+        (sec.actions ? `<td class="text-end">${sec.actions[ri] || ''}</td>` : '') + '</tr>').join('');
+      return `<div class="card p-3 shadow-sm mb-3">${sec.heading ? `<h6 class="fw-bold mb-2">${esc(sec.heading)}</h6>` : ''}
+        <div class="table-responsive"><table class="table table-sm table-striped mb-0"><thead><tr>${head}</tr></thead><tbody>${body || `<tr><td colspan="${sec.headers.length}" class="text-muted text-center">Tidak ada data pada periode ini.</td></tr>`}</tbody></table></div></div>`;
+    }
+
+    function accPeriodLabel_() {
+      if (accTab === 'neraca') return 'Per Tanggal ' + fmtDate(accData.end);
+      return accData.start === accData.end ? 'Tanggal ' + fmtDate(accData.end) : 'Periode ' + fmtDate(accData.start) + ' s/d ' + fmtDate(accData.end);
+    }
+
+    function renderAccountingContent() {
+      if (!accData) return;
+      let ix = accIndex_();
+      let sections = [], pre = '';
+      let t = accTab;
+      if (t === 'jurnal') sections = accSecJurnal_(ix);
+      else if (t === 'bukubesar') sections = accSecBukuBesar_(ix, $('#acc-ledger-sel').val() || '');
+      else if (t === 'kasbank') { let r = accSecKasBank_(ix); pre = r.cards; sections = r.sections; }
+      else if (t === 'neracasaldo') sections = accSecNeracaSaldo_(ix);
+      else if (t === 'labarugi') sections = accSecLabaRugi_(ix);
+      else if (t === 'neraca') sections = accSecNeraca_(ix);
+      else if (t === 'aruskas') sections = accSecArusKas_(ix);
+      accCurrent = { title: ACC_TITLES[t], sections: sections };
+      let note = accData.bookStart ? `<div class="small text-muted mb-2">Pembukuan dimulai dari tanggal Saldo Awal pertama (${fmtDate(accData.bookStart)}). ${accPeriodLabel_()}.</div>`
+        : `<div class="alert alert-warning small">Belum ada Saldo Awal yang tersimpan di menu Saldo &amp; Kas, sehingga saldo awal Kas/Bank dianggap 0.</div>`;
+      $('#acc-content').html(note + pre + sections.map(accTableHtml_).join(''));
+    }
+
+    // ---- Jurnal Umum ----
+    function accSecJurnal_(ix) {
+      let f = $('#acc-src-filter').val() || '';
+      let rows = [], bold = [], actions = [], lines = 0, totD = 0, totC = 0, truncated = false;
+      accData.entries.forEach(e => {
+        if (f === 'auto' && e.manual) return;
+        if (f === 'manual' && !e.manual) return;
+        e.lines.forEach((l, i) => {
+          totD += l.d; totC += l.c;
+          if (lines >= 3000) { truncated = true; return; }
+          lines++;
+          rows.push([i === 0 ? fmtDate(e.date) : '', i === 0 ? e.id : '', i === 0 ? e.memo + ' [' + (ACC_SRC_LABEL[e.src] || e.src) + ']' : '',
+            (l.c ? '      ' : '') + accLabel_(ix.map, l.acc), l.d || '', l.c || '']);
+          actions.push(i === 0 && e.manual && accCanWrite_() ? `<button class="btn btn-sm btn-outline-danger" onclick="deleteManualJournalUi('${esc(e.id)}')"><i class="fa-solid fa-trash"></i></button>` : '');
+        });
+      });
+      rows.push(['', '', '', 'TOTAL', totD, totC]); actions.push(''); bold.push(rows.length - 1);
+      let sec = { heading: ACC_TITLES.jurnal + (truncated ? ' (layar dibatasi 3.000 baris - ekspor memuat semua)' : ''), headers: ['Tanggal', 'No. Jurnal', 'Keterangan', 'Akun', 'Debit', 'Kredit'], rows: rows, numCols: [4, 5], bold: bold, actions: actions };
+      if (truncated) { // untuk ekspor, sertakan semua baris tanpa batas
+        let all = [];
+        accData.entries.forEach(e => {
+          if (f === 'auto' && e.manual) return;
+          if (f === 'manual' && !e.manual) return;
+          e.lines.forEach((l, i) => all.push([i === 0 ? fmtDate(e.date) : '', i === 0 ? e.id : '', i === 0 ? e.memo : '', accLabel_(ix.map, l.acc), l.d || '', l.c || '']));
+        });
+        all.push(['', '', '', 'TOTAL', totD, totC]);
+        sec.exportRows = all;
+      }
+      return [sec];
+    }
+
+    // ---- Buku Besar ----
+    function accLedgerSection_(ix, code, opts) {
+      opts = opts || {};
+      let a = ix.map[code] || { code: code, name: code, type: 'B' };
+      let run = ix.open[code] || 0, rows = [], bold = [];
+      let natOpen = accNat_(ix.map, code, run);
+      rows.push(['', '', 'Saldo Awal', '', '', natOpen]); bold.push(0);
+      let tD = 0, tC = 0;
+      accData.entries.forEach(e => e.lines.forEach(l => {
+        if (l.acc !== code) return;
+        run += l.d - l.c; tD += l.d; tC += l.c;
+        rows.push([fmtDate(e.date), e.id, e.memo, l.d || '', l.c || '', accNat_(ix.map, code, run)]);
+      }));
+      rows.push(['', '', 'Total Mutasi / Saldo Akhir', tD, tC, accNat_(ix.map, code, run)]); bold.push(rows.length - 1);
+      return { heading: opts.heading || (a.code + ' - ' + a.name), sheetName: a.code, headers: ['Tanggal', 'No. Jurnal', 'Keterangan', opts.dLabel || 'Debit', opts.cLabel || 'Kredit', 'Saldo'], rows: rows, numCols: [3, 4, 5], bold: bold,
+        _open: natOpen, _in: tD, _out: tC, _close: accNat_(ix.map, code, run), _has: rows.length > 2 || Math.abs(natOpen) > 0.004 };
+    }
+    function accSecBukuBesar_(ix, sel) {
+      let codes = sel ? [sel] : accData.accounts.map(a => a.code);
+      let out = [];
+      codes.forEach(c => { let s = accLedgerSection_(ix, c); if (sel || s._has) out.push(s); });
+      return out;
+    }
+
+    // ---- Buku Kas & Bank ----
+    function accSecKasBank_(ix) {
+      let defs = [['1101', 'Buku Kas (Brangkas)'], ['1102', 'Buku Bank (Rekening PT)']];
+      let secs = [], cards = '<div class="row g-3 mb-3">';
+      defs.forEach(d => {
+        let s = accLedgerSection_(ix, d[0], { heading: d[1], dLabel: 'Penerimaan (Masuk)', cLabel: 'Pengeluaran (Keluar)' });
+        secs.push(s);
+        cards += `<div class="col-md-6"><div class="card p-3 shadow-sm"><h6 class="fw-bold">${esc(d[1])}</h6>
+          <div class="d-flex justify-content-between"><span>Saldo Awal</span><span>${fmtRp(s._open)}</span></div>
+          <div class="d-flex justify-content-between text-success"><span>Total Penerimaan</span><span>${fmtRp(s._in)}</span></div>
+          <div class="d-flex justify-content-between text-danger"><span>Total Pengeluaran</span><span>${fmtRp(s._out)}</span></div>
+          <div class="d-flex justify-content-between fw-bold border-top pt-1 mt-1"><span>Saldo Akhir</span><span>${fmtRp(s._close)}</span></div></div></div>`;
+      });
+      cards += '</div>';
+      let sum = { heading: 'Ringkasan Kas & Bank', headers: ['Rekening', 'Saldo Awal', 'Penerimaan', 'Pengeluaran', 'Saldo Akhir'],
+        rows: secs.map((s, i) => [defs[i][1], s._open, s._in, s._out, s._close]).concat([['TOTAL KAS & BANK', secs[0]._open + secs[1]._open, secs[0]._in + secs[1]._in, secs[0]._out + secs[1]._out, secs[0]._close + secs[1]._close]]),
+        numCols: [1, 2, 3, 4], bold: [2] };
+      return { cards: cards, sections: [sum].concat(secs) };
+    }
+
+    // ---- Neraca Saldo ----
+    function accSecNeracaSaldo_(ix) {
+      let rows = [], tot = [0, 0, 0, 0, 0, 0];
+      accData.accounts.forEach(a => {
+        let o = ix.open[a.code] || 0, mv = ix.mv[a.code] || { d: 0, c: 0 };
+        let end = o + mv.d - mv.c;
+        if (Math.abs(o) < 0.005 && !mv.d && !mv.c && Math.abs(end) < 0.005) return;
+        let v = [o > 0 ? o : 0, o < 0 ? -o : 0, mv.d, mv.c, end > 0 ? end : 0, end < 0 ? -end : 0];
+        v.forEach((x, i) => tot[i] += x);
+        rows.push([a.code, a.name].concat(v));
+      });
+      rows.push(['', 'TOTAL'].concat(tot));
+      let ok = Math.abs(tot[4] - tot[5]) < 0.5;
+      return [{ heading: 'Neraca Saldo - ' + (ok ? 'BALANCE' : 'TIDAK BALANCE'), headers: ['Kode', 'Nama Akun', 'Saldo Awal Debit', 'Saldo Awal Kredit', 'Mutasi Debit', 'Mutasi Kredit', 'Saldo Akhir Debit', 'Saldo Akhir Kredit'],
+        rows: rows, numCols: [2, 3, 4, 5, 6, 7], bold: [rows.length - 1] }];
+    }
+
+    // ---- Laba Rugi (periode) ----
+    function accSecLabaRugi_(ix) {
+      let rows = [], bold = [];
+      function group(type, title) {
+        rows.push(['', title, '']); bold.push(rows.length - 1);
+        let tot = 0;
+        accData.accounts.filter(a => a.type === type).forEach(a => {
+          let mv = ix.mv[a.code]; if (!mv || (!mv.d && !mv.c)) return;
+          let v = type === 'P' ? mv.c - mv.d : mv.d - mv.c;
+          tot += v; rows.push([a.code, a.name, v]);
+        });
+        rows.push(['', 'Total ' + title, tot]); bold.push(rows.length - 1);
+        return tot;
+      }
+      let pend = group('P', 'PENDAPATAN');
+      let beban = group('B', 'BEBAN');
+      rows.push(['', pend - beban >= 0 ? 'LABA BERSIH' : 'RUGI BERSIH', pend - beban]); bold.push(rows.length - 1);
+      return [{ heading: 'Laporan Laba Rugi', headers: ['Kode', 'Keterangan', 'Jumlah'], rows: rows, numCols: [2], bold: bold }];
+    }
+
+    // ---- Neraca (per tanggal) ----
+    function accSecNeraca_(ix) {
+      let rows = [], bold = [], bal = {};
+      accData.accounts.forEach(a => { let mv = ix.mv[a.code] || { d: 0, c: 0 }; bal[a.code] = (ix.open[a.code] || 0) + mv.d - mv.c; });
+      function group(type, title, extra) {
+        rows.push(['', title, '']); bold.push(rows.length - 1);
+        let tot = 0;
+        accData.accounts.filter(a => a.type === type).forEach(a => {
+          let v = accNat_(ix.map, a.code, bal[a.code]);
+          if (Math.abs(v) < 0.005) return; tot += v; rows.push([a.code, a.name, v]);
+        });
+        if (extra) { tot += extra.value; rows.push(['', extra.label, extra.value]); }
+        rows.push(['', 'Total ' + title, tot]); bold.push(rows.length - 1);
+        return tot;
+      }
+      let labaBerjalan = 0;
+      accData.accounts.forEach(a => { if (a.type === 'P') labaBerjalan += -bal[a.code]; if (a.type === 'B') labaBerjalan -= bal[a.code]; });
+      let aset = group('A', 'ASET');
+      let kew = group('K', 'KEWAJIBAN');
+      let eku = group('E', 'EKUITAS', { label: 'Laba (Rugi) Berjalan s/d tanggal ini', value: labaBerjalan });
+      rows.push(['', 'TOTAL KEWAJIBAN + EKUITAS', kew + eku]); bold.push(rows.length - 1);
+      let ok = Math.abs(aset - (kew + eku)) < 0.5;
+      return [{ heading: 'Neraca per ' + fmtDate(accData.end) + ' - ' + (ok ? 'BALANCE' : 'TIDAK BALANCE (selisih ' + accNum_(aset - kew - eku) + ')'), headers: ['Kode', 'Keterangan', 'Jumlah'], rows: rows, numCols: [2], bold: bold }];
+    }
+
+    // ---- Arus Kas (metode langsung) ----
+    function accSecArusKas_(ix) {
+      let by = { PENERIMAAN: 0, DP: 0, BEBAN: 0, MUTASI: 0, MANUAL: 0, SELISIH: 0, SALDO: 0 };
+      accData.entries.forEach(e => e.lines.forEach(l => {
+        if (l.acc === '1101' || l.acc === '1102') by[e.src] = (by[e.src] || 0) + l.d - l.c;
+      }));
+      let opening = (ix.open['1101'] || 0) + (ix.open['1102'] || 0);
+      let rows = [], bold = [];
+      function hdr(t) { rows.push(['', t, '']); bold.push(rows.length - 1); }
+      hdr('ARUS KAS DARI AKTIVITAS OPERASI');
+      rows.push(['', 'Penerimaan dari penjualan (kasir)', by.PENERIMAAN]);
+      rows.push(['', 'Penerimaan DP / uang muka pelanggan', by.DP]);
+      rows.push(['', 'Pembayaran beban & pengeluaran', by.BEBAN]);
+      rows.push(['', 'Jurnal manual (kas/bank)', by.MANUAL]);
+      rows.push(['', 'Selisih kas/bank terhadap saldo aktual', by.SELISIH]);
+      rows.push(['', 'Mutasi antar Kas & Bank (netto)', by.MUTASI]);
+      let op = by.PENERIMAAN + by.DP + by.BEBAN + by.MANUAL + by.SELISIH + by.MUTASI;
+      rows.push(['', 'Kas Bersih dari Aktivitas Operasi', op]); bold.push(rows.length - 1);
+      hdr('ARUS KAS DARI AKTIVITAS INVESTASI');
+      rows.push(['', 'Kas Bersih dari Aktivitas Investasi', 0]); bold.push(rows.length - 1);
+      hdr('ARUS KAS DARI AKTIVITAS PENDANAAN');
+      rows.push(['', 'Saldo awal pembukuan (modal awal)', by.SALDO]);
+      rows.push(['', 'Kas Bersih dari Aktivitas Pendanaan', by.SALDO]); bold.push(rows.length - 1);
+      let net = op + by.SALDO;
+      rows.push(['', 'KENAIKAN (PENURUNAN) BERSIH KAS & BANK', net]); bold.push(rows.length - 1);
+      rows.push(['', 'Saldo Kas & Bank Awal Periode', opening]);
+      rows.push(['', 'SALDO KAS & BANK AKHIR PERIODE', opening + net]); bold.push(rows.length - 1);
+      rows.push(['', '   - Kas (Brangkas)', (ix.open['1101'] || 0) + ((ix.mv['1101'] || { d: 0, c: 0 }).d - (ix.mv['1101'] || { d: 0, c: 0 }).c)]);
+      rows.push(['', '   - Bank (Rekening PT)', (ix.open['1102'] || 0) + ((ix.mv['1102'] || { d: 0, c: 0 }).d - (ix.mv['1102'] || { d: 0, c: 0 }).c)]);
+      return [{ heading: 'Laporan Arus Kas (Metode Langsung)', headers: ['', 'Keterangan', 'Jumlah'], rows: rows, numCols: [2], bold: bold }];
+    }
+
+    // ---- Ekspor PDF / XLSX ----
+    function accExport(kind) {
+      if (!accCurrent || !accData) return;
+      let secs = accCurrent.sections;
+      let fname = 'Akuntansi_' + accTab + '_' + (accTab === 'neraca' ? accData.end : accData.start + (accData.end !== accData.start ? '_sd_' + accData.end : ''));
+      if (kind === 'xlsx') {
+        let used = {};
+        let sheets = secs.map((s, i) => {
+          let nm = String(s.sheetName || s.heading || ('Sheet' + (i + 1))).replace(/[\[\]:*?\/\\]/g, '-').substring(0, 28) || ('Sheet' + (i + 1));
+          let base = nm, n = 2; while (used[nm]) nm = base.substring(0, 25) + '_' + (n++); used[nm] = 1;
+          return { name: nm, headers: s.headers, rows: s.exportRows || s.rows };
+        });
+        exportMultiSheetXlsx(fname + '.xlsx', sheets);
+        return;
+      }
+      loadCompanySettings(function() {
+        let sections = secs.map(s => ({
+          heading: s.heading, headers: s.headers,
+          rows: (s.exportRows || s.rows).map(r => r.map((v, i) => (s.numCols || []).indexOf(i) !== -1 ? accNum_(v) : v))
+        }));
+        const headerInfo = { cashierName: currentUser.fullName, cashierPosition: 'Admin Keuangan', reportDate: accData.end, logoUrl: companySettings.LOGO_URL, nameLabel: 'Nama Petugas', signatures: PDF_SIGNATURES };
+        exportToPdf(fname + '.pdf', accCurrent.title, accPeriodLabel_(), sections, headerInfo, null, 'portrait');
+        Toast.fire({ icon: 'success', title: 'PDF berhasil diunduh' });
+      });
+    }
+
+    // ---- Jurnal Manual ----
+    function openManualJournalModal() {
+      if (!accData) return;
+      const opts = accData.accounts.map(a => `<option value="${esc(a.code)}">${esc(a.code + ' - ' + a.name)}</option>`).join('');
+      const rowHtml = `<tr><td><select class="form-select form-select-sm mj-acc"><option value="">-- Pilih Akun --</option>${opts}</select></td>
+        <td><input type="number" min="0" step="any" class="form-control form-control-sm mj-d" placeholder="0"></td>
+        <td><input type="number" min="0" step="any" class="form-control form-control-sm mj-c" placeholder="0"></td>
+        <td><button type="button" class="btn btn-sm btn-outline-danger mj-del"><i class="fa-solid fa-xmark"></i></button></td></tr>`;
+      Swal.fire({
+        title: 'Jurnal Manual', width: 860, showCancelButton: true, confirmButtonText: 'Simpan Jurnal', cancelButtonText: 'Batal',
+        html: `<div class="text-start">
+          <div class="row g-2 mb-2"><div class="col-md-4"><label class="form-label small mb-1">Tanggal</label><input type="date" id="mj-date" class="form-control" value="${todayStr()}"></div>
+          <div class="col-md-8"><label class="form-label small mb-1">Keterangan</label><input type="text" id="mj-memo" class="form-control" placeholder="mis. Penyesuaian / koreksi"></div></div>
+          <table class="table table-sm mb-1"><thead><tr><th>Akun</th><th style="width:140px">Debit</th><th style="width:140px">Kredit</th><th style="width:40px"></th></tr></thead><tbody id="mj-lines">${rowHtml}${rowHtml}</tbody></table>
+          <button type="button" class="btn btn-sm btn-outline-primary" id="mj-add"><i class="fa-solid fa-plus me-1"></i>Tambah Baris</button>
+          <div class="mt-2 small fw-semibold" id="mj-total"></div></div>`,
+        didOpen: function() {
+          const totals = function() {
+            let d = 0, c = 0;
+            $('#mj-lines tr').each(function() { d += Number($(this).find('.mj-d').val()) || 0; c += Number($(this).find('.mj-c').val()) || 0; });
+            let ok = Math.abs(d - c) < 0.005 && d > 0;
+            $('#mj-total').html(`Total Debit: ${accNum_(d)} &nbsp;|&nbsp; Total Kredit: ${accNum_(c)} &nbsp;<span class="badge ${ok ? 'bg-success' : 'bg-danger'}">${ok ? 'Balance' : 'Belum balance'}</span>`);
+          };
+          $('#mj-lines').on('input change', totals);
+          $('#mj-lines').on('click', '.mj-del', function() { if ($('#mj-lines tr').length > 2) { $(this).closest('tr').remove(); totals(); } });
+          $('#mj-add').on('click', function() { $('#mj-lines').append(rowHtml); });
+          totals();
+        },
+        preConfirm: function() {
+          let lines = [];
+          $('#mj-lines tr').each(function() {
+            let acc = $(this).find('.mj-acc').val(), d = Number($(this).find('.mj-d').val()) || 0, c = Number($(this).find('.mj-c').val()) || 0;
+            if (acc || d || c) lines.push({ acc: acc, debit: d, credit: c });
+          });
+          if (!$('#mj-date').val()) return Swal.showValidationMessage('Tanggal wajib diisi.');
+          if (lines.some(l => !l.acc)) return Swal.showValidationMessage('Pilih akun untuk setiap baris yang diisi.');
+          if (lines.some(l => l.debit && l.credit)) return Swal.showValidationMessage('Satu baris hanya boleh Debit ATAU Kredit.');
+          let d = lines.reduce((t, l) => t + l.debit, 0), c = lines.reduce((t, l) => t + l.credit, 0);
+          if (lines.length < 2 || Math.abs(d - c) > 0.005) return Swal.showValidationMessage('Jurnal harus balance (Debit = Kredit) minimal 2 baris.');
+          return { Date: $('#mj-date').val(), Memo: $('#mj-memo').val() || 'Jurnal Manual', lines: lines };
+        }
+      }).then(function(r) {
+        if (!r.isConfirmed) return;
+        Swal.fire({ title: 'Menyimpan...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+        google.script.run.withSuccessHandler(function(res) {
+          Swal.close();
+          if (!res.success) return Swal.fire('Gagal', res.message, 'error');
+          Toast.fire({ icon: 'success', title: res.message });
+          loadAccounting();
+        }).withFailureHandler(errHandler).saveManualJournal(r.value, sessionToken);
+      });
+    }
+
+    function deleteManualJournalUi(id) {
+      Swal.fire({ title: 'Hapus jurnal manual?', text: id, icon: 'warning', showCancelButton: true, confirmButtonText: 'Hapus', cancelButtonText: 'Batal' }).then(function(r) {
+        if (!r.isConfirmed) return;
+        google.script.run.withSuccessHandler(function(res) {
+          if (!res.success) return Swal.fire('Gagal', res.message, 'error');
+          Toast.fire({ icon: 'success', title: res.message });
+          loadAccounting();
+        }).withFailureHandler(errHandler).deleteManualJournal(id, sessionToken);
+      });
+    }
+
 
     function renderFinanceReportView(area) {
       area.html(`
