@@ -923,7 +923,7 @@
     let dbRangeStart = todayStr();
     let dbRangeEnd = todayStr();
     let dbActivePreset = 'today';
-    let dbSalesChart = null, dbExpenseChart = null, dbCategoryChart = null, dbTopProductChart = null;
+    let dbPenerimaanPie = null, dbSalesChart = null, dbExpenseChart = null, dbCategoryChart = null, dbTopProductChart = null;
 
     function pad2_(n) { return n < 10 ? '0' + n : '' + n; }
     function toDateStr_(d) { return d.getFullYear() + '-' + pad2_(d.getMonth() + 1) + '-' + pad2_(d.getDate()); }
@@ -1004,8 +1004,8 @@
           <div class="col-6 col-md"><div class="card p-3 shadow-sm metric-card"><h6>Kartu Kredit</h6><h5 id="m-kredit" class="fw-bold text-dark">Rp 0</h5></div></div>
         </div>
         <div class="row g-3 mb-4">
-          <div class="col-12">
-            <div class="card p-3 shadow-sm metric-card" style="border-left:4px solid #16a34a;">
+          <div class="col-lg-8">
+            <div class="card p-3 shadow-sm metric-card h-100" style="border-left:4px solid #16a34a;">
               <h6 class="mb-1"><i class="fa-solid fa-cash-register me-1 text-success"></i>Total Penerimaan Kasir</h6>
               <h4 id="m-penerimaan-total" class="fw-bold text-success mb-2">Rp 0</h4>
               <div class="small text-muted d-flex flex-wrap gap-3">
@@ -1015,6 +1015,13 @@
                 <div><span class="me-1">Kartu Debit:</span><span id="m-penerimaan-debit" class="fw-semibold text-dark">Rp 0</span></div>
                 <div><span class="me-1">Kartu Kredit:</span><span id="m-penerimaan-kredit" class="fw-semibold text-dark">Rp 0</span></div>
               </div>
+            </div>
+          </div>
+          <div class="col-lg-4">
+            <div class="card p-3 shadow-sm h-100">
+              <h6 class="mb-2"><i class="fa-solid fa-chart-pie me-1 text-success"></i>Tunai vs Non Tunai</h6>
+              <div style="position:relative;height:190px;"><canvas id="db-chart-penerimaan-pie"></canvas></div>
+              <div class="small text-muted mt-1">Non Tunai = QRIS + Transfer + Debit + Kredit</div>
             </div>
           </div>
         </div>
@@ -1861,6 +1868,27 @@
         $('#m-penerimaan-tf').text(fmtRp(res.metrics.totalTransfer));
         $('#m-penerimaan-debit').text(fmtRp(res.metrics.totalDebit));
         $('#m-penerimaan-kredit').text(fmtRp(res.metrics.totalKredit));
+
+        // Pie Chart Tunai vs Non Tunai (Non Tunai = QRIS + Transfer + Debit + Kredit)
+        if (document.getElementById('db-chart-penerimaan-pie')) {
+          let pieCash = Number(res.metrics.totalCash) || 0;
+          let pieNon = (Number(res.metrics.totalQris) || 0) + (Number(res.metrics.totalTransfer) || 0) + (Number(res.metrics.totalDebit) || 0) + (Number(res.metrics.totalKredit) || 0);
+          if (dbPenerimaanPie) dbPenerimaanPie.destroy();
+          dbPenerimaanPie = new Chart(document.getElementById('db-chart-penerimaan-pie'), {
+            type: 'pie',
+            data: { labels: ['Tunai', 'Non Tunai'], datasets: [{ data: [pieCash, pieNon], backgroundColor: ['#16a34a', '#0284c7'] }] },
+            options: {
+              responsive: true, maintainAspectRatio: false,
+              plugins: {
+                legend: { position: 'right' },
+                tooltip: { callbacks: { label: function(c) {
+                  let tot = (pieCash + pieNon) || 1;
+                  return c.label + ': ' + fmtRp(c.parsed) + ' (' + (c.parsed / tot * 100).toFixed(1) + '%)';
+                } } }
+              }
+            }
+          });
+        }
 
         function fillUnitWidget_(key, unitKey) {
           let b = (res.paymentBreakdown && res.paymentBreakdown[unitKey]) || { total: 0, cash: 0, qris: 0, transfer: 0, debit: 0, kredit: 0 };
@@ -6434,7 +6462,7 @@
         <div class="card shadow-sm mb-3 d-none" id="fin-rep-balance-card">
           <div class="card-body py-2">
             <div class="d-flex justify-content-between align-items-center mb-1">
-              <h6 class="fw-bold mb-0"><i class="fa-solid fa-scale-balanced me-2"></i>Check Balance Laporan Kasir <span class="small text-muted fw-normal">
+              <h6 class="fw-bold mb-0"><i class="fa-solid fa-scale-balanced me-2"></i>Check Balance Laporan Kasir <span class="small text-muted fw-normal">(hanya untuk pantauan, tidak ikut dicetak)</span></h6>
               <span class="badge bg-secondary" id="fin-rep-balance-badge">Memeriksa...</span>
             </div>
             <div id="fin-rep-balance-body"></div>
