@@ -6634,12 +6634,12 @@
 
     // ---- Buku Kas & Bank ----
     function accSecKasBank_(ix) {
-      let defs = [['1101', 'Buku Kas (Brangkas)'], ['1102', 'Buku Bank (Rekening PT)']];
+      let defs = [['1101', 'Buku Kas (Brangkas)'], ['1102', 'Buku Bank (Rekening BRI PT WTC)'], ['1103', 'Buku Bank (Tabungan Cadangan/THR)']];
       let secs = [], cards = '<div class="row g-3 mb-3">';
       defs.forEach(d => {
         let s = accLedgerSection_(ix, d[0], { heading: d[1], dLabel: 'Penerimaan (Masuk)', cLabel: 'Pengeluaran (Keluar)' });
         secs.push(s);
-        cards += `<div class="col-md-6"><div class="card p-3 shadow-sm"><h6 class="fw-bold">${esc(d[1])}</h6>
+        cards += `<div class="col-md-4"><div class="card p-3 shadow-sm"><h6 class="fw-bold">${esc(d[1])}</h6>
           <div class="d-flex justify-content-between"><span>Saldo Awal</span><span>${fmtRp(s._open)}</span></div>
           <div class="d-flex justify-content-between text-success"><span>Total Penerimaan</span><span>${fmtRp(s._in)}</span></div>
           <div class="d-flex justify-content-between text-danger"><span>Total Pengeluaran</span><span>${fmtRp(s._out)}</span></div>
@@ -6647,8 +6647,8 @@
       });
       cards += '</div>';
       let sum = { heading: 'Ringkasan Kas & Bank', headers: ['Rekening', 'Saldo Awal', 'Penerimaan', 'Pengeluaran', 'Saldo Akhir'],
-        rows: secs.map((s, i) => [defs[i][1], s._open, s._in, s._out, s._close]).concat([['TOTAL KAS & BANK', secs[0]._open + secs[1]._open, secs[0]._in + secs[1]._in, secs[0]._out + secs[1]._out, secs[0]._close + secs[1]._close]]),
-        numCols: [1, 2, 3, 4], bold: [2] };
+        rows: secs.map((s, i) => [defs[i][1], s._open, s._in, s._out, s._close]).concat([['TOTAL KAS & BANK', secs.reduce((t, s) => t + s._open, 0), secs.reduce((t, s) => t + s._in, 0), secs.reduce((t, s) => t + s._out, 0), secs.reduce((t, s) => t + s._close, 0)]]),
+        numCols: [1, 2, 3, 4], bold: [3] };
       return { cards: cards, sections: [sum].concat(secs) };
     }
 
@@ -6718,9 +6718,9 @@
     function accSecArusKas_(ix) {
       let by = { PENERIMAAN: 0, DP: 0, RCV_PIUTANG: 0, RCV_LAIN: 0, BEBAN: 0, MUTASI: 0, MANUAL: 0, SELISIH: 0, SALDO: 0 };
       accData.entries.forEach(e => e.lines.forEach(l => {
-        if (l.acc === '1101' || l.acc === '1102') by[e.src] = (by[e.src] || 0) + l.d - l.c;
+        if (l.acc === '1101' || l.acc === '1102' || l.acc === '1103') by[e.src] = (by[e.src] || 0) + l.d - l.c;
       }));
-      let opening = (ix.open['1101'] || 0) + (ix.open['1102'] || 0);
+      let opening = (ix.open['1101'] || 0) + (ix.open['1102'] || 0) + (ix.open['1103'] || 0);
       let rows = [], bold = [];
       function hdr(t) { rows.push(['', t, '']); bold.push(rows.length - 1); }
       hdr('ARUS KAS DARI AKTIVITAS OPERASI');
@@ -6744,7 +6744,8 @@
       rows.push(['', 'Saldo Kas & Bank Awal Periode', opening]);
       rows.push(['', 'SALDO KAS & BANK AKHIR PERIODE', opening + net]); bold.push(rows.length - 1);
       rows.push(['', '   - Kas (Brangkas)', (ix.open['1101'] || 0) + ((ix.mv['1101'] || { d: 0, c: 0 }).d - (ix.mv['1101'] || { d: 0, c: 0 }).c)]);
-      rows.push(['', '   - Bank (Rekening PT)', (ix.open['1102'] || 0) + ((ix.mv['1102'] || { d: 0, c: 0 }).d - (ix.mv['1102'] || { d: 0, c: 0 }).c)]);
+      rows.push(['', '   - Bank (Rekening BRI PT WTC)', (ix.open['1102'] || 0) + ((ix.mv['1102'] || { d: 0, c: 0 }).d - (ix.mv['1102'] || { d: 0, c: 0 }).c)]);
+      rows.push(['', '   - Bank (Tabungan Cadangan/THR)', (ix.open['1103'] || 0) + ((ix.mv['1103'] || { d: 0, c: 0 }).d - (ix.mv['1103'] || { d: 0, c: 0 }).c)]);
       return [{ heading: 'Laporan Arus Kas (Metode Langsung)', headers: ['', 'Keterangan', 'Jumlah'], rows: rows, numCols: [2], bold: bold }];
     }
 
@@ -6887,7 +6888,7 @@
       let f = $('#rcv-type-filter').val() || '';
       return (rcvData ? rcvData.data : []).filter(r => !f || r.Type === f);
     }
-    function rcvDestLabel_(d) { return d === 'Rekening' ? 'Rekening PT' : 'Brangkas'; }
+    function rcvDestLabel_(d) { return d === 'Rekening' ? 'Rekening BRI PT WTC' : 'Brangkas'; }
 
     function renderFinanceReceiptsContent() {
       if (!rcvData) return;
@@ -6915,12 +6916,12 @@
         <td><input type="text" class="form-control form-control-sm rc-desc" placeholder="Keterangan / nama pihak" value="${esc((r && r.Description) || '')}"></td>
         <td><input type="number" min="0" step="any" class="form-control form-control-sm rc-qty" value="${r ? r.Qty : 1}"></td>
         <td><input type="number" min="0" step="any" class="form-control form-control-sm rc-amt" value="${r ? r.Amount : ''}"></td>
-        <td><select class="form-select form-select-sm rc-dest"><option value="Brangkas">Brangkas</option><option value="Rekening">Rekening PT</option></select></td>
+        <td><select class="form-select form-select-sm rc-dest"><option value="Brangkas">Brangkas</option><option value="Rekening">Rekening BRI PT WTC</option></select></td>
         <td>${editRow ? '' : '<button type="button" class="btn btn-sm btn-outline-danger rc-del"><i class="fa-solid fa-xmark"></i></button>'}</td></tr>`;
       Swal.fire({
         title: editRow ? 'Edit Penerimaan' : 'Input Penerimaan', width: 1000, showCancelButton: true, confirmButtonText: 'Simpan Semua', cancelButtonText: 'Batal',
         html: `<div class="text-start"><div class="table-responsive"><table class="table table-sm mb-1">
-          <thead><tr><th style="width:135px">Tanggal</th><th style="width:230px">Jenis</th><th>Keterangan</th><th style="width:80px">Qty</th><th style="width:140px">Jumlah (Rp)</th><th style="width:130px">Masuk ke</th><th style="width:36px"></th></tr></thead>
+          <thead><tr><th style="width:135px">Tanggal</th><th style="width:230px">Jenis</th><th>Keterangan</th><th style="width:80px">Qty</th><th style="width:140px">Jumlah (Rp)</th><th style="width:170px">Masuk ke</th><th style="width:36px"></th></tr></thead>
           <tbody id="rc-lines">${rowHtml(editRow)}${editRow ? '' : rowHtml(null) + rowHtml(null) + rowHtml(null)}</tbody></table></div>
           ${editRow ? '' : '<button type="button" class="btn btn-sm btn-outline-primary" id="rc-add"><i class="fa-solid fa-plus me-1"></i>Tambah Baris</button>'}
           <div class="mt-2 small fw-semibold" id="rc-total"></div></div>`,
