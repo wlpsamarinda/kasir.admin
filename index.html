@@ -840,7 +840,8 @@
 
       if (role === 'Owner' || role === 'Admin') {
         html += `<li class="menu-group-label">Administrasi</li>
-          <li><a onclick="loadView('master')" data-view="master"><i class="fa-solid ${mIcon('master','fa-database')}"></i><span class="nav-text">${esc(mLabel('master','Master Produk'))}</span></a></li>`;
+          <li><a onclick="loadView('master')" data-view="master"><i class="fa-solid ${mIcon('master','fa-database')}"></i><span class="nav-text">${esc(mLabel('master','Master Produk'))}</span></a></li>
+          <li><a onclick="loadView('suppliers')" data-view="suppliers"><i class="fa-solid ${mIcon('suppliers','fa-truck')}"></i><span class="nav-text">${esc(mLabel('suppliers','Daftar Suplayer'))}</span></a></li>`;
 
         // Pengaturan digabung jadi satu grup dengan sub-menu (tidak menumpuk
         // di sidebar). Isi sub-menu menyesuaikan role: Manajemen User dan
@@ -882,6 +883,7 @@
       const area = $('#main-content-area');
       if (view === 'dashboard') { setActiveNav('dashboard'); renderDashboard(area); }
       else if (view === 'master') { setActiveNav('master'); renderMasterProduk(area); }
+      else if (view === 'suppliers') { setActiveNav('suppliers'); renderSuppliersView(area); }
       else if (view === 'catpay') { setActiveNav('catpay'); renderCategoriesPayments(area); }
       else if (view === 'users') { setActiveNav('users'); renderUsers(area); }
       else if (view === 'settings') { setActiveNav('settings'); renderSettings(area); }
@@ -5359,11 +5361,101 @@
           financeStatusCache = (statusRes.success ? statusRes.data : []).filter(s => s.Status === 'Active');
           google.script.run.withSuccessHandler(function(posRes) {
             financePosCache = (posRes.success ? posRes.data : []).filter(p => p.Status === 'Active');
-            cb();
+            feLoadSuppliersAndProducts_(cb);
           }).withFailureHandler(errHandler).getFinancePosPenggunaanList(sessionToken);
         }).withFailureHandler(errHandler).getFinancePaymentStatusList(sessionToken);
       }).withFailureHandler(errHandler).getFinanceCOA(sessionToken);
     }
+
+
+    // ================= DAFTAR SUPLAYER =================
+    let supplierCache = [];
+    function renderSuppliersView(area) {
+      area.html(`
+        <h2 class="fw-bold mb-1">Daftar Suplayer</h2>
+        <p class="text-muted mb-4">Daftar ini muncul sebagai pilihan di form Pembayaran. Nama suplayer baru yang diketik manual di form Pembayaran otomatis ditambahkan ke sini.</p>
+        <div class="card p-3 shadow-sm">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5 class="fw-bold mb-0">Suplayer</h5>
+            <button class="btn btn-primary" onclick="openSupplierModal()"><i class="fa-solid fa-plus me-2"></i>Tambah Suplayer</button>
+          </div>
+          <div class="table-responsive"><table class="table table-striped w-100" id="supplier-table">
+            <thead><tr><th>Nama Suplayer</th><th>Telepon</th><th>Alamat</th><th>Status</th><th>Aksi</th></tr></thead><tbody></tbody></table></div>
+        </div>`);
+      loadSuppliers();
+    }
+    function loadSuppliers() {
+      google.script.run.withSuccessHandler(function(res) {
+        if (!res.success) return Swal.fire('Gagal', res.message, 'error');
+        supplierCache = res.data || [];
+        let rows = supplierCache.map(s => `<tr>
+          <td>${esc(s.SupplierName)}</td><td>${esc(s.Phone || '-')}</td><td>${esc(s.Address || '-')}</td>
+          <td><span class="badge ${s.Status === 'Inactive' ? 'bg-secondary' : 'bg-success'}">${s.Status === 'Inactive' ? 'Nonaktif' : 'Aktif'}</span></td>
+          <td><button class="btn btn-sm btn-outline-primary me-1" onclick="openSupplierModal('${esc(s.SupplierID)}')"><i class="fa-solid fa-pen"></i></button>
+              <button class="btn btn-sm btn-outline-danger" onclick="deleteSupplierUi('${esc(s.SupplierID)}')"><i class="fa-solid fa-trash"></i></button></td></tr>`).join('');
+        let sel = '#supplier-table';
+        if ($.fn.DataTable.isDataTable(sel)) $(sel).DataTable().destroy();
+        $(sel + ' tbody').html(rows);
+        $(sel).DataTable({ pageLength: 25, order: [[0, 'asc']], language: { emptyTable: 'Belum ada suplayer' } });
+      }).withFailureHandler(errHandler).getSuppliers(sessionToken);
+    }
+    function openSupplierModal(id) {
+      let s = id ? supplierCache.find(x => x.SupplierID === id) : null;
+      Swal.fire({
+        title: s ? 'Edit Suplayer' : 'Tambah Suplayer', showCancelButton: true, confirmButtonText: 'Simpan', cancelButtonText: 'Batal',
+        html: `<div class="text-start">
+          <label class="form-label small mb-1">Nama Suplayer / Toko</label><input id="sp-name" class="form-control mb-2" value="${esc(s ? s.SupplierName : '')}">
+          <label class="form-label small mb-1">Telepon</label><input id="sp-phone" class="form-control mb-2" value="${esc(s ? s.Phone : '')}">
+          <label class="form-label small mb-1">Alamat</label><input id="sp-addr" class="form-control mb-2" value="${esc(s ? s.Address : '')}">
+          <label class="form-label small mb-1">Status</label><select id="sp-status" class="form-select"><option value="Active" ${!s || s.Status !== 'Inactive' ? 'selected' : ''}>Aktif</option><option value="Inactive" ${s && s.Status === 'Inactive' ? 'selected' : ''}>Nonaktif</option></select></div>`,
+        preConfirm: function() {
+          let name = $('#sp-name').val().trim();
+          if (!name) return Swal.showValidationMessage('Nama suplayer wajib diisi.');
+          return { SupplierID: s ? s.SupplierID : '', SupplierName: name, Phone: $('#sp-phone').val().trim(), Address: $('#sp-addr').val().trim(), Status: $('#sp-status').val() };
+        }
+      }).then(function(r) {
+        if (!r.isConfirmed) return;
+        google.script.run.withSuccessHandler(function(res) {
+          if (!res.success) return Swal.fire('Gagal', res.message, 'error');
+          Toast.fire({ icon: 'success', title: res.message });
+          loadSuppliers();
+        }).withFailureHandler(errHandler).saveSupplier(r.value, sessionToken);
+      });
+    }
+    function deleteSupplierUi(id) {
+      Swal.fire({ title: 'Hapus suplayer ini?', text: 'Riwayat Pembayaran lama tidak berubah.', icon: 'warning', showCancelButton: true, confirmButtonText: 'Ya, hapus', confirmButtonColor: '#dc3545' }).then(function(r) {
+        if (!r.isConfirmed) return;
+        google.script.run.withSuccessHandler(function(res) {
+          if (!res.success) return Swal.fire('Gagal', res.message, 'error');
+          Toast.fire({ icon: 'success', title: res.message });
+          loadSuppliers();
+        }).withFailureHandler(errHandler).deleteSupplier(id, sessionToken);
+      });
+    }
+
+    // ---- Daftar Suplayer & produk berstok untuk form Pembayaran ----
+    let financeSupplierNames = [], financeStockProdMap = {};
+    function feStockLabelOf_(p, dup) {
+      return p.ProductName + (p.Variant ? ' - ' + p.Variant : '') + (dup ? ' [' + p.ProductCode + ']' : '');
+    }
+    function feLoadSuppliersAndProducts_(cb) {
+      google.script.run.withSuccessHandler(function(sRes) {
+        financeSupplierNames = (sRes.success ? sRes.data : []).filter(s => s.Status !== 'Inactive').map(s => s.SupplierName);
+        google.script.run.withSuccessHandler(function(pRes) {
+          let list = pRes.success ? pRes.data : [], count = {};
+          list.forEach(p => { let k = feStockLabelOf_(p, false); count[k] = (count[k] || 0) + 1; });
+          financeStockProdMap = {};
+          list.forEach(p => { financeStockProdMap[feStockLabelOf_(p, count[feStockLabelOf_(p, false)] > 1)] = p; });
+          cb();
+        }).withFailureHandler(function() { financeStockProdMap = {}; cb(); }).getStockPurchaseProducts(sessionToken);
+      }).withFailureHandler(function() { financeSupplierNames = []; cb(); }).getSuppliers(sessionToken);
+    }
+    function feDatalistsHtml_() {
+      return '<datalist id="fe-supplier-list">' + financeSupplierNames.map(n => `<option value="${esc(n)}">`).join('') + '</datalist>'
+        + '<datalist id="fe-stock-list">' + Object.keys(financeStockProdMap).map(k => `<option value="${esc(k)}">${esc(financeStockProdMap[k].ProductCode)}</option>`).join('') + '</datalist>';
+    }
+    function feStockMatch_(text) { return financeStockProdMap[String(text || '').trim()] || null; }
+
 
     function renderFinanceExpensesView(area) {
       area.html(`
@@ -5584,7 +5676,7 @@
           return `<tr>
             <td>${fmtDate(e.Date)}</td>
             <td>${esc(e.Supplier || '-')}</td>
-            <td>${esc(e.Description)}</td>
+            <td>${esc(e.Description)}${e.StockProductCode ? ` <span class="badge bg-success" title="Stok Gudang Utama +${esc(e.StockQty)}">+Stok ${esc(e.StockQty)}</span>` : ''}</td>
             <td class="text-end">${fmtRp(e.UnitPrice)}</td>
             <td class="text-end">${esc(e.Qty || 1)}</td>
             <td>${esc(e.Unit || '-')}</td>
@@ -5634,8 +5726,8 @@
             <div class="text-start">
               <div class="row g-2">
                 <div class="col-md-6"><label class="form-label small mb-1">Tanggal</label><input id="swal-fe-date" type="date" class="form-control" value="${isEdit ? e.Date : financeBalanceDate}"></div>
-                <div class="col-md-6"><label class="form-label small mb-1">Suplayer</label><input id="swal-fe-supplier" class="form-control" value="${isEdit ? esc(e.Supplier || '') : ''}" placeholder="Nama suplayer/toko"></div>
-                <div class="col-12"><label class="form-label small mb-1">Belanja / Pengeluaran</label><input id="swal-fe-desc" class="form-control" value="${isEdit ? esc(e.Description) : ''}" placeholder="Mis. Beli Oli Mesin Wahana"></div>
+                <div class="col-md-6"><label class="form-label small mb-1">Suplayer</label><input id="swal-fe-supplier" class="form-control" list="fe-supplier-list" value="${isEdit ? esc(e.Supplier || '') : ''}" placeholder="Pilih / ketik nama suplayer"></div>
+                <div class="col-12"><label class="form-label small mb-1">Belanja / Pengeluaran <span class="badge bg-success d-none" id="swal-fe-stockbadge">+Stok Gudang Utama</span></label><input id="swal-fe-desc" class="form-control" list="fe-stock-list" value="${isEdit ? esc(e.Description) : ''}" placeholder="Ketik manual, atau pilih produk berstok dari daftar"><div class="form-text">Pilih produk dari daftar untuk menambah stok Gudang Utama sebesar Qty. Teks manual = pengeluaran biasa.</div>${feDatalistsHtml_()}</div>
                 <div class="col-md-4"><label class="form-label small mb-1">Harga (satuan)</label><input id="swal-fe-harga" type="number" class="form-control" value="${isEdit ? e.UnitPrice : ''}" oninput="updateFeTotalPreview()"></div>
                 <div class="col-md-4"><label class="form-label small mb-1">Qty</label><input id="swal-fe-qty" type="number" class="form-control" value="${isEdit ? e.Qty : 1}" oninput="updateFeTotalPreview()"></div>
                 <div class="col-md-4"><label class="form-label small mb-1">Sat</label><input id="swal-fe-sat" class="form-control" value="${isEdit ? esc(e.Unit || '') : ''}" placeholder="pcs/box/ltr"></div>
@@ -5648,6 +5740,25 @@
           confirmButtonText: 'Simpan', showCancelButton: true, focusConfirm: false,
           didOpen: () => {
             window.updateFeTotalPreview();
+            // Produk berstok: cocokkan teks dengan daftar -> stok Gudang Utama bertambah saat disimpan
+            window._feStockCode = (isEdit && e.StockProductCode) ? e.StockProductCode : '';
+            const origDesc = isEdit ? e.Description : '';
+            const syncStock = (fromUser) => {
+              let txt = document.getElementById('swal-fe-desc').value;
+              let p = feStockMatch_(txt);
+              if (p) {
+                window._feStockCode = p.ProductCode;
+                if (fromUser) {
+                  if (!document.getElementById('swal-fe-sat').value && p.Unit) document.getElementById('swal-fe-sat').value = p.Unit;
+                  if (!document.getElementById('swal-fe-harga').value && p.BuyPrice) { document.getElementById('swal-fe-harga').value = p.BuyPrice; window.updateFeTotalPreview(); }
+                }
+              } else if (txt !== origDesc || !window._feStockCode) {
+                window._feStockCode = '';
+              }
+              document.getElementById('swal-fe-stockbadge').classList.toggle('d-none', !window._feStockCode);
+            };
+            document.getElementById('swal-fe-desc').addEventListener('input', () => syncStock(true));
+            syncStock(false);
             // Select2 supaya Pos Biaya (Kode Akun) & Pos Penggunaan bisa
             // dicari lewat ketik (bukan cuma scroll) - jumlah kode/nama COA
             // dan Pos Penggunaan bisa banyak sehingga select biasa merepotkan.
@@ -5665,6 +5776,7 @@
               Date: document.getElementById('swal-fe-date').value,
               Supplier: document.getElementById('swal-fe-supplier').value,
               Description: desc,
+              StockProductCode: window._feStockCode || '',
               UnitPrice: document.getElementById('swal-fe-harga').value,
               Qty: document.getElementById('swal-fe-qty').value,
               Unit: document.getElementById('swal-fe-sat').value,
@@ -5705,8 +5817,8 @@
       return `<tr class="fe-row" data-rid="${n}">
         <td class="fe-no text-center fw-bold align-middle"></td>
         <td style="min-width:150px"><input type="date" class="form-control fe-date" data-col="date" value="${esc(d.date || feGridDefaultDate_())}"></td>
-        <td style="min-width:170px"><input class="form-control fe-supplier" data-col="supplier" placeholder="Suplayer/toko" value="${esc(d.supplier || '')}"></td>
-        <td style="min-width:240px"><input class="form-control fe-desc" data-col="desc" placeholder="Belanja / pengeluaran" value="${esc(d.desc || '')}"></td>
+        <td style="min-width:170px"><input class="form-control fe-supplier" data-col="supplier" list="fe-supplier-list" placeholder="Pilih / ketik suplayer" value="${esc(d.supplier || '')}"></td>
+        <td style="min-width:260px"><input class="form-control fe-desc" data-col="desc" list="fe-stock-list" placeholder="Ketik manual / pilih produk berstok" value="${esc(d.desc || '')}"><span class="badge bg-success fe-stockbadge d-none mt-1">+Stok Gudang Utama</span></td>
         <td style="min-width:130px"><input type="number" inputmode="decimal" min="0" step="any" class="form-control text-end fe-harga" data-col="harga" placeholder="0" value="${esc(d.harga || '')}"></td>
         <td style="min-width:80px"><input type="number" inputmode="decimal" min="0" step="any" class="form-control text-end fe-qty" data-col="qty" value="${esc(d.qty || 1)}"></td>
         <td style="min-width:90px"><input class="form-control fe-sat" data-col="sat" placeholder="pcs" value="${esc(d.sat || '')}"></td>
@@ -5725,6 +5837,7 @@
       const $m = $('#fe-grid-modal');
       $tr.find('.fe-coa').select2({ width: '100%', dropdownParent: $m, placeholder: '— Pilih —' });
       $tr.find('.fe-pos').select2({ width: '100%', dropdownParent: $m, placeholder: '—', allowClear: true });
+      feGridStockSync_($tr, false);
       feGridCalcRow_($tr);
     }
 
@@ -5735,6 +5848,17 @@
       feGridRenumber_();
       if (focusCol) $tr.find('[data-col="' + focusCol + '"]').first().trigger('focus');
       return $tr;
+    }
+
+    // Belanja/Pengeluaran yang cocok dengan produk berstok -> stok Gudang Utama bertambah (Qty)
+    function feGridStockSync_($tr, fromUser) {
+      const p = feStockMatch_($tr.find('.fe-desc').val());
+      $tr.data('stock', p ? p.ProductCode : '');
+      $tr.find('.fe-stockbadge').toggleClass('d-none', !p);
+      if (p && fromUser) {
+        if (!String($tr.find('.fe-sat').val()).trim() && p.Unit) $tr.find('.fe-sat').val(p.Unit);
+        if (!String($tr.find('.fe-harga').val()).trim() && p.BuyPrice) { $tr.find('.fe-harga').val(p.BuyPrice); feGridCalcRow_($tr); }
+      }
     }
 
     function feGridRenumber_() {
@@ -5796,6 +5920,7 @@
                 </div>
               </div>
               <div class="modal-body p-2 p-md-3">
+                ${feDatalistsHtml_()}
                 <div class="table-responsive fe-grid-wrap">
                   <table class="table table-sm align-middle mb-0 fe-grid">
                     <thead><tr>
@@ -5823,6 +5948,7 @@
         $m.on('click', '#fe-grid-save', feGridSave_);
         $m.on('input change', '.fe-harga, .fe-qty', function() { feGridCalcRow_($(this).closest('tr')); });
         $m.on('input change', '.fe-desc, .fe-supplier, .fe-sat', feGridCalcAll_);
+        $m.on('input change', '.fe-desc', function() { feGridStockSync_($(this).closest('tr'), true); });
         $m.on('click', '.fe-del', function() {
           const $tr = $(this).closest('tr');
           if ($('#fe-grid-body .fe-row').length <= 1) { $tr.find('input').not('.fe-date').val(''); $tr.find('.fe-qty').val(1); feGridCalcRow_($tr); return; }
@@ -5884,7 +6010,7 @@
           payload: {
             date: r.date, supplier: String(r.supplier).trim(), description: String(r.desc).trim(),
             unitPrice: Number(r.harga) || 0, qty: r.qty === '' ? 1 : (Number(r.qty) || 0), unit: String(r.sat).trim() || '-',
-            statusPembayaran: r.status, coaCode: r.coa, posPenggunaan: r.pos || ''
+            statusPembayaran: r.status, coaCode: r.coa, posPenggunaan: r.pos || '', stockProductCode: $tr.data('stock') || ''
           }
         });
       });
