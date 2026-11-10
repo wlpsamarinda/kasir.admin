@@ -4284,6 +4284,12 @@
               </div>
             </div>
             <div class="col-lg-5">
+              ${(warehouseId === 'WH01' && (currentUser.role === 'Owner' || currentUser.role === 'Admin')) ? `
+              <div class="card p-4 shadow-sm mb-3 border-success">
+                <h5 class="mb-3"><i class="fa-solid fa-circle-plus me-2"></i>Penambahan Stok</h5>
+                <p class="text-muted small">Tambah stok masuk ke Gudang Utama (mis. barang datang dari suplayer). Jumlah yang diisi <strong>ditambahkan</strong> ke stok saat ini, dan tercatat di Kartu Stok &amp; Riwayat Mutasi.</p>
+                <div id="wh-addstock-form"></div>
+              </div>` : ''}
               <div class="card p-4 shadow-sm mb-3 border-primary">
                 <h5 class="mb-3"><i class="fa-solid fa-pen-to-square me-2"></i>Set Stok Manual</h5>
                 <p class="text-muted small">Input/koreksi stok produk secara langsung di gudang ini (mis. hasil stok opname).</p>
@@ -4315,6 +4321,17 @@
           <button class="btn btn-primary w-100" onclick="saveWarehouseManualStock()"><i class="fa-solid fa-floppy-disk me-2"></i>Simpan Stok</button>`);
         prefillWarehouseManual();
 
+        if ($('#wh-addstock-form').length) {
+          let addOpts = res.stock.map(s => `<option value="${esc(s.ProductCode)}">${esc(s.ProductName)} (stok: ${s.HasRecord ? s.Quantity : 0})</option>`).join('');
+          $('#wh-addstock-form').html(`
+            <select id="wh-add-product" class="form-select mb-2">${addOpts || '<option value="">-- Tidak ada produk --</option>'}</select>
+            <input id="wh-add-qty" type="number" min="1" step="any" class="form-control mb-2" placeholder="Jumlah yang ditambahkan">
+            <input id="wh-add-notes" type="text" class="form-control mb-2" list="wh-supplier-list" placeholder="Suplayer / catatan (opsional)">
+            <datalist id="wh-supplier-list">${(typeof financeSupplierNames !== 'undefined' ? financeSupplierNames : []).map(n => `<option value="${esc(n)}">`).join('')}</datalist>
+            <button class="btn btn-success w-100" onclick="saveWarehouseAddStock()"><i class="fa-solid fa-plus me-2"></i>Tambah Stok</button>`);
+          if (typeof feLoadSuppliersAndProducts_ === 'function') feLoadSuppliersAndProducts_(function() { $('#wh-supplier-list').html(financeSupplierNames.map(n => `<option value="${esc(n)}">`).join('')); });
+        }
+
         if (isInternal) {
           $('#wh-usage-form').html(`
             <select id="wh-usage-product" class="form-select mb-2">${manualOptions || '<option value="">-- Tidak ada produk --</option>'}</select>
@@ -4329,6 +4346,19 @@
         });
         $('#wh-history-tbody').html(hist || '<tr><td colspan="6" class="text-center text-muted">Belum ada riwayat</td></tr>');
       }).withFailureHandler(errHandler).getWarehouseStockDetail(warehouseId, sessionToken);
+    }
+
+    function saveWarehouseAddStock() {
+      let code = $('#wh-add-product').val();
+      let qty = Number($('#wh-add-qty').val());
+      let notes = $('#wh-add-notes').val();
+      if (!code) return Swal.fire('Perhatian', 'Pilih produk terlebih dahulu.', 'warning');
+      if (!qty || qty <= 0) return Swal.fire('Perhatian', 'Isi jumlah penambahan dengan benar (lebih dari 0).', 'warning');
+      google.script.run.withSuccessHandler(res => {
+        if (!res.success) return Swal.fire('Gagal', res.message, 'error');
+        Toast.fire({ icon: 'success', title: res.message });
+        loadWarehouseDetail('WH01');
+      }).withFailureHandler(errHandler).addCentralStock(code, qty, sessionToken, notes);
     }
 
     function renderWarehouseStockTable(cat) {
