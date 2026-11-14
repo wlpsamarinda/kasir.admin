@@ -4289,6 +4289,13 @@
                 <h5 class="mb-3"><i class="fa-solid fa-circle-plus me-2"></i>Penambahan Stok</h5>
                 <p class="text-muted small">Tambah stok masuk ke Gudang Utama (mis. barang datang dari suplayer). Jumlah yang diisi <strong>ditambahkan</strong> ke stok saat ini, dan tercatat di Kartu Stok &amp; Riwayat Mutasi.</p>
                 <div id="wh-addstock-form"></div>
+                <hr class="my-3">
+                <h6 class="mb-2">Riwayat Penambahan Stok</h6>
+                <p class="text-muted small mb-2">Salah input atau dobel? Hapus barisnya &mdash; stok Gudang Utama otomatis dikembalikan. Baris bertanda <span class="badge bg-info text-dark">Pembayaran</span> berasal dari menu Pembayaran dan dikoreksi lewat sana.</p>
+                <div class="table-responsive" style="max-height:340px;overflow-y:auto"><table class="table table-sm align-middle mb-0">
+                  <thead><tr><th>Tanggal</th><th>Produk</th><th class="text-end">Qty</th><th>Asal / Catatan</th><th>Aksi</th></tr></thead>
+                  <tbody id="wh-addhist-tbody"><tr><td colspan="5" class="text-center text-muted">Memuat...</td></tr></tbody>
+                </table></div>
               </div>` : ''}
               <div class="card p-4 shadow-sm mb-3 border-primary">
                 <h5 class="mb-3"><i class="fa-solid fa-pen-to-square me-2"></i>Set Stok Manual</h5>
@@ -4322,6 +4329,7 @@
         prefillWarehouseManual();
 
         if ($('#wh-addstock-form').length) {
+          loadCentralAdditions_();
           let addOpts = res.stock.map(s => `<option value="${esc(s.ProductCode)}">${esc(s.ProductName)} (stok: ${s.HasRecord ? s.Quantity : 0})</option>`).join('');
           $('#wh-addstock-form').html(`
             <select id="wh-add-product" class="form-select mb-2">${addOpts || '<option value="">-- Tidak ada produk --</option>'}</select>
@@ -4346,6 +4354,67 @@
         });
         $('#wh-history-tbody').html(hist || '<tr><td colspan="6" class="text-center text-muted">Belum ada riwayat</td></tr>');
       }).withFailureHandler(errHandler).getWarehouseStockDetail(warehouseId, sessionToken);
+    }
+
+    let centralAddCache_ = [];
+    function loadCentralAdditions_() {
+      google.script.run.withSuccessHandler(res => {
+        if (!res || !res.success) { $('#wh-addhist-tbody').html('<tr><td colspan="5" class="text-center text-danger">' + esc((res && res.message) || 'Gagal memuat') + '</td></tr>'); return; }
+        centralAddCache_ = res.data;
+        let rows = res.data.map(r => {
+          let aksi = r.Source === 'manual'
+            ? `<button class="btn btn-sm btn-outline-primary me-1" onclick="editCentralAddition_('${esc(r.MutationID)}')" title="Ubah"><i class="fa-solid fa-pen"></i></button><button class="btn btn-sm btn-outline-danger" onclick="deleteCentralAddition_('${esc(r.MutationID)}')" title="Hapus & kembalikan stok"><i class="fa-solid fa-trash"></i></button>`
+            : '<span class="badge bg-info text-dark">Pembayaran</span>';
+          return `<tr><td class="text-nowrap">${fmtDate(r.Timestamp)}</td><td>${esc(r.ProductName)}</td><td class="text-end fw-semibold">+${esc(r.Qty)} ${esc(r.Unit || '')}</td><td class="small">${esc(r.Note || '')}<div class="text-muted">${esc(r.User || '')}</div></td><td class="text-nowrap">${aksi}</td></tr>`;
+        }).join('');
+        $('#wh-addhist-tbody').html(rows || '<tr><td colspan="5" class="text-center text-muted">Belum ada penambahan stok</td></tr>');
+      }).withFailureHandler(errHandler).getCentralStockAdditions(sessionToken);
+    }
+
+    function editCentralAddition_(id) {
+      let r = centralAddCache_.find(x => x.MutationID === id);
+      if (!r) return;
+      let opts = warehouseStockCache.map(s => `<option value="${esc(s.ProductCode)}" ${s.ProductCode === r.ProductCode ? 'selected' : ''}>${esc(s.ProductName)}</option>`).join('');
+      if (!warehouseStockCache.some(s => s.ProductCode === r.ProductCode)) opts = `<option value="${esc(r.ProductCode)}" selected>${esc(r.ProductName)}</option>` + opts;
+      Swal.fire({
+        title: 'Ubah Penambahan Stok',
+        html: `<div class="text-start">
+          <label class="form-label small mb-1">Produk</label><select id="swal-ca-prod" class="form-select mb-2">${opts}</select>
+          <label class="form-label small mb-1">Jumlah</label><input id="swal-ca-qty" type="number" min="1" step="any" class="form-control mb-2" value="${esc(r.Qty)}">
+          <label class="form-label small mb-1">Suplayer / catatan</label><input id="swal-ca-note" class="form-control" value="${esc(r.Note || '')}"></div>`,
+        showCancelButton: true, confirmButtonText: 'Simpan', cancelButtonText: 'Batal',
+        preConfirm: () => {
+          let q = Number(document.getElementById('swal-ca-qty').value);
+          if (!q || q <= 0) { Swal.showValidationMessage('Jumlah harus lebih dari 0'); return false; }
+          return { code: document.getElementById('swal-ca-prod').value, qty: q, note: document.getElementById('swal-ca-note').value };
+        }
+      }).then(x => { if (x.isConfirmed) sendCentralAdditionUpdate_(id, x.value, false); });
+    }
+    function sendCentralAdditionUpdate_(id, v, force) {
+      google.script.run.withSuccessHandler(res => {
+        if (res && res.needsConfirm && !force) {
+          return Swal.fire({ title: 'Stok akan negatif', text: res.message, icon: 'warning', showCancelButton: true, confirmButtonText: 'Tetap simpan' })
+            .then(c => { if (c.isConfirmed) sendCentralAdditionUpdate_(id, v, true); });
+        }
+        if (!res || !res.success) return Swal.fire('Gagal', (res && res.message) || 'Gagal menyimpan', 'error');
+        Toast.fire({ icon: 'success', title: res.message });
+        loadWarehouseDetail('WH01');
+      }).withFailureHandler(errHandler).updateCentralStockAddition(id, v.code, v.qty, v.note, sessionToken, !!force);
+    }
+    function deleteCentralAddition_(id, force) {
+      let r = centralAddCache_.find(x => x.MutationID === id);
+      let go = () => google.script.run.withSuccessHandler(res => {
+        if (res && res.needsConfirm && !force) {
+          return Swal.fire({ title: 'Stok akan negatif', text: res.message, icon: 'warning', showCancelButton: true, confirmButtonText: 'Tetap hapus' })
+            .then(c => { if (c.isConfirmed) deleteCentralAddition_(id, true); });
+        }
+        if (!res || !res.success) return Swal.fire('Gagal', (res && res.message) || 'Gagal menghapus', 'error');
+        Toast.fire({ icon: 'success', title: res.message });
+        loadWarehouseDetail('WH01');
+      }).withFailureHandler(errHandler).deleteCentralStockAddition(id, sessionToken, !!force);
+      if (force) return go();
+      Swal.fire({ title: 'Hapus penambahan stok?', html: r ? `${esc(r.ProductName)} <b>+${esc(r.Qty)}</b><br><span class="small text-muted">Stok Gudang Utama akan dikurangi sebesar jumlah ini.</span>` : '', icon: 'question', showCancelButton: true, confirmButtonText: 'Hapus', confirmButtonColor: '#dc3545' })
+        .then(c => { if (c.isConfirmed) go(); });
     }
 
     function saveWarehouseAddStock() {
