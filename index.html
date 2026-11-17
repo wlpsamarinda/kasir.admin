@@ -6589,6 +6589,7 @@
       { key: 'entrance', label: 'Pendapatan Kasir Loket Masuk' },
       { key: 'ride', label: 'Pendapatan Kasir Loket Wahana' },
       { key: 'resto', label: 'Pendapatan Kasir Resto' },
+      { key: 'lain', label: 'Pendapatan Lainnya (DP, Minus F&B, Minus Tiket, Potongan Pelanggaran, Piutang Karyawan, dll)' },
       { key: 'category', label: 'Total Penjualan per Kategori (Semua Outlet)' },
       { key: 'kasirPenerimaan', label: 'Total Penjualan / Penerimaan per Kasir' },
       { key: 'expBrangkas', label: 'Total Pengeluaran dari Brangkas' },
@@ -7268,6 +7269,9 @@
       { key: 'DP', label: 'Pendapatan DP / Uang Muka Penjualan' },
       { key: 'BungaBank', label: 'Penerimaan Bunga Bank' },
       { key: 'SelisihQRIS', label: 'Penerimaan Selisih QRIS' },
+      { key: 'MinusTiket', label: 'Pendapatan Minus Tiket' },
+      { key: 'PotonganPelanggaran', label: 'Pendapatan Potongan Pelanggaran' },
+      { key: 'PiutangKaryawan', label: 'Penerimaan Piutang Karyawan' },
       { key: 'Lainnya', label: 'Pendapatan Lainnya' }
     ];
 
@@ -7525,6 +7529,23 @@
         </table></div>`;
     }
 
+    // Tabel "Pendapatan Lainnya" (penerimaan non-produk: DP, Minus F&B, dst).
+    function finLainRows_(pl) {
+      return ((pl && pl.lines) || []).map(l => [l.label + (l.description ? ' - ' + l.description : ''), l.qty, l.total, l.date]);
+    }
+    function finLainTable_(pl, isRange) {
+      pl = pl || { lines: [], total: 0, totalQty: 0 };
+      let rows = (pl.lines || []).map(l => `<tr>${isRange ? `<td class="text-nowrap">${esc(l.date)}</td>` : ''}<td>${esc(l.label)}${l.description ? ' <span class="text-muted">- ' + esc(l.description) + '</span>' : ''}</td><td class="text-end">${l.qty}</td><td class="text-end">${fmtRp(l.total)}</td></tr>`).join('')
+        || `<tr><td colspan="${isRange ? 4 : 3}" class="text-muted text-center">Tidak ada pendapatan lainnya</td></tr>`;
+      return `
+        <h6 class="fw-bold mt-3">Pendapatan Lainnya</h6>
+        <div class="table-responsive"><table class="table table-sm table-striped mb-1">
+          <thead><tr>${isRange ? '<th>Tanggal</th>' : ''}<th>Keterangan</th><th class="text-end">Qty</th><th class="text-end">Total</th></tr></thead>
+          <tbody>${rows}</tbody>
+          <tfoot><tr class="fw-bold border-top"><td${isRange ? ' colspan="2"' : ''}>SUBTOTAL</td><td class="text-end">${pl.totalQty || 0}</td><td class="text-end">${fmtRp(pl.total || 0)}</td></tr></tfoot>
+        </table></div>`;
+    }
+
     function finKasirTable_(kasir) {
       let rows = (kasir.lines || []).map(l => `<tr><td>${esc(l.cashierName)}</td><td>${esc(l.posisi)}</td><td class="text-end">${fmtRp(l.tunai)}</td><td class="text-end">${fmtRp(l.nonTunai)}</td><td class="text-end fw-bold">${fmtRp(l.jumlah)}</td></tr>`).join('')
         || '<tr><td colspan="5" class="text-muted text-center">Tidak ada data penerimaan kasir</td></tr>';
@@ -7616,10 +7637,12 @@
           ${finUnitTable_('Pendapatan Kasir Loket Masuk', r.entrance)}
           ${finUnitTable_('Pendapatan Kasir Loket Wahana', r.ride)}
           ${finUnitTable_('Pendapatan Kasir Resto', r.resto)}
+          ${finLainTable_(r.pendapatanLain, r.isRange)}
           ${finCategoryTableSection_(r.categoryBreakdown)}
           ${finKasirTable_(r.kasirPenerimaan || { lines: [], totalTunai: 0, totalNonTunai: 0, totalJumlah: 0 })}
           <div class="p-3 border rounded mt-2" style="background:rgba(2,132,199,.06)">
             ${finRow_('Total Pendapatan Kotor', r.totalPendapatanKotor, { bold: true })}
+            ${finRow_('Total Pendapatan Lainnya (DP, Minus F&B, dll)', (r.pendapatanLain || {}).total || 0)}
           </div>
 
           <div class="p-3 border rounded mt-2">
@@ -7704,6 +7727,14 @@
       txt += `✅ *Pendapatan Kasir Loket Masuk*\n${prodLines(r.entrance)}\n\n`;
       txt += `✅ *Pendapatan Kasir Loket Wahana*\n${prodLines(r.ride)}\n\n`;
       txt += `✅ *Pendapatan Kasir Resto*\n${prodLines(r.resto)}\n\n`;
+      {
+        let pl = r.pendapatanLain || { lines: [], total: 0 };
+        txt += `✅ *Pendapatan Lainnya*\n`;
+        txt += pl.lines.length
+          ? pl.lines.map(l => `● ${l.label}${l.description ? ' (' + l.description + ')' : ''}${l.qty > 1 ? ' : x ' + l.qty : ''} = ${Number(l.total).toLocaleString('id-ID')}`).join('\n')
+          : '●';
+        txt += `\n*Subtotal Pendapatan Lainnya* = ${Number(pl.total || 0).toLocaleString('id-ID')}\n\n`;
+      }
       if (r.categoryBreakdown && r.categoryBreakdown.lines && r.categoryBreakdown.lines.length) {
         txt += `📊 *Rekapan Pendapatan Per Kategori (Semua Outlet)*\n`;
         txt += r.categoryBreakdown.lines.map(l => `● ${l.category} : Qty ${l.qty} = ${Number(l.total).toLocaleString('id-ID')}`).join('\n');
@@ -7714,7 +7745,8 @@
         txt += r.kasirPenerimaan.lines.map(l => `● ${l.cashierName} (${l.posisi}) : Tunai ${Number(l.tunai).toLocaleString('id-ID')} + Non Tunai ${Number(l.nonTunai).toLocaleString('id-ID')} = ${Number(l.jumlah).toLocaleString('id-ID')}`).join('\n');
         txt += `\nTotal : Tunai ${Number(r.kasirPenerimaan.totalTunai).toLocaleString('id-ID')} + Non Tunai ${Number(r.kasirPenerimaan.totalNonTunai).toLocaleString('id-ID')} = ${Number(r.kasirPenerimaan.totalJumlah).toLocaleString('id-ID')}\n\n`;
       }
-      txt += `🟠 *Total Pendapatan Kotor* = ${Number(r.totalPendapatanKotor).toLocaleString('id-ID')}\n\n`;
+      txt += `🟠 *Total Pendapatan Kotor* = ${Number(r.totalPendapatanKotor).toLocaleString('id-ID')}\n`;
+      txt += `🟣 *Total Pendapatan Lainnya* = ${Number((r.pendapatanLain || {}).total || 0).toLocaleString('id-ID')}\n\n`;
       txt += `🟢 *Total Pendapatan Bersih*  = ${Number(r.totalPendapatanBersih).toLocaleString('id-ID')}\n`;
       txt += `💰 Total Penerimaan Uang Tunai Semua Kasir = ${Number(r.totalCash).toLocaleString('id-ID')}\n`;
       txt += `💳 Total Penerimaan QRIS+Transfer+Debit+Kredit Semua Kasir = ${Number(r.totalNonCash).toLocaleString('id-ID')}\n\n`;
@@ -7785,6 +7817,7 @@
       if (fs.entrance) sections.push({ heading: 'Pendapatan Kasir Loket Masuk', headers: ['Produk','Harga','Qty','Total'], rows: finFilterZeroQty_(r.entrance.lines).map(l => [l.productName + (l.variant ? ' ('+l.variant+')' : ''), fmtRp(l.unitPrice), l.qty, fmtRp(l.total)]).concat([['SUBTOTAL', '', r.totalQtyEntrance, fmtRp(r.entrance.total)]]) });
       if (fs.ride) sections.push({ heading: 'Pendapatan Kasir Loket Wahana', headers: ['Produk','Harga','Qty','Total'], rows: finFilterZeroQty_(r.ride.lines).map(l => [l.productName + (l.variant ? ' ('+l.variant+')' : ''), fmtRp(l.unitPrice), l.qty, fmtRp(l.total)]).concat([['SUBTOTAL', '', r.totalQtyRide, fmtRp(r.ride.total)]]) });
       if (fs.resto) sections.push({ heading: 'Pendapatan Kasir Resto', headers: ['Produk','Harga','Qty','Total'], rows: finFilterZeroQty_(r.resto.lines).map(l => [l.productName + (l.variant ? ' ('+l.variant+')' : ''), fmtRp(l.unitPrice), l.qty, fmtRp(l.total)]).concat([['SUBTOTAL', '', r.totalQtyResto, fmtRp(r.resto.total)]]) });
+      if (fs.lain) sections.push({ heading: 'Pendapatan Lainnya', headers: r.isRange ? ['Tanggal','Keterangan','Qty','Total'] : ['Keterangan','Qty','Total'], rows: (r.pendapatanLain ? r.pendapatanLain.lines : []).map(l => (r.isRange ? [l.date] : []).concat([l.label + (l.description ? ' - ' + l.description : ''), l.qty, fmtRp(l.total)])).concat([(r.isRange ? ['SUBTOTAL', ''] : ['SUBTOTAL']).concat([r.pendapatanLain ? r.pendapatanLain.totalQty : 0, fmtRp(r.pendapatanLain ? r.pendapatanLain.total : 0)])]) });
       if (fs.category) sections.push({ heading: 'Rekapan Pendapatan Per Kategori (Semua Outlet)', headers: ['Kategori','Qty','Total'], rows: (r.categoryBreakdown ? r.categoryBreakdown.lines : []).map(l => [l.category, l.qty, fmtRp(l.total)]).concat([['TOTAL', r.totalQtyKategori || 0, fmtRp(r.categoryBreakdown ? r.categoryBreakdown.total : 0)]]) });
       // Catatan: baris TOTAL untuk tabel "Total Penerimaan dari Kasir" ditulis
       // manual (bukan lewat totalLabel/totalValue bawaan) supaya kolom
@@ -7800,6 +7833,7 @@
         ['Saldo Awal Rekening', fmtRp(r.saldoAwalRekening)],
         ['Total Saldo Awal', fmtRp(r.saldoAwalTotal)],
         ['Total Pendapatan Kotor', fmtRp(r.totalPendapatanKotor)],
+          ['Total Pendapatan Lainnya (DP, Minus F&B, dll)', fmtRp(r.pendapatanLain ? r.pendapatanLain.total : 0)],
         ['Total Pendapatan Bersih', fmtRp(r.totalPendapatanBersih)],
         ['Total Penerimaan Uang Tunai Semua Kasir', fmtRp(r.totalCash)],
         ['Total Penerimaan QRIS+Transfer+Debit+Kredit Semua Kasir', fmtRp(r.totalNonCash)],
@@ -7853,6 +7887,7 @@
           ['Subtotal Qty Kasir Resto', r.totalQtyResto || 0],
           ['Total Qty Rekapan Pendapatan Per Kategori', r.totalQtyKategori || 0],
           ['Total Pendapatan Kotor', fmtRp(r.totalPendapatanKotor)],
+          ['Total Pendapatan Lainnya (DP, Minus F&B, dll)', fmtRp(r.pendapatanLain ? r.pendapatanLain.total : 0)],
           ['Total Pendapatan Bersih', fmtRp(r.totalPendapatanBersih)],
           ['Total Penerimaan Uang Tunai Semua Kasir', fmtRp(r.totalCash)],
           ['Total Penerimaan QRIS+Transfer+Debit+Kredit Semua Kasir', fmtRp(r.totalNonCash)],
@@ -7894,6 +7929,7 @@
       if (fs.entrance) sheets.push({ name: 'Kasir Loket Masuk', headers: ['Produk','Varian','Harga','Qty','Total'], rows: finFilterZeroQty_(r.entrance.lines).map(l => [l.productName, l.variant, fmtRp(l.unitPrice), l.qty, fmtRp(l.total)]).concat([['', '', 'SUBTOTAL', r.totalQtyEntrance, fmtRp(r.entrance.total)]]) });
       if (fs.ride) sheets.push({ name: 'Kasir Loket Wahana', headers: ['Produk','Varian','Harga','Qty','Total'], rows: finFilterZeroQty_(r.ride.lines).map(l => [l.productName, l.variant, fmtRp(l.unitPrice), l.qty, fmtRp(l.total)]).concat([['', '', 'SUBTOTAL', r.totalQtyRide, fmtRp(r.ride.total)]]) });
       if (fs.resto) sheets.push({ name: 'Kasir Resto', headers: ['Produk','Varian','Harga','Qty','Total'], rows: finFilterZeroQty_(r.resto.lines).map(l => [l.productName, l.variant, fmtRp(l.unitPrice), l.qty, fmtRp(l.total)]).concat([['', '', 'SUBTOTAL', r.totalQtyResto, fmtRp(r.resto.total)]]) });
+      if (fs.lain) sheets.push({ name: 'Pendapatan Lainnya', headers: ['Tanggal','Jenis','Keterangan','Qty','Total'], rows: (r.pendapatanLain ? r.pendapatanLain.lines : []).map(l => [l.date, l.label, l.description || '', l.qty, fmtRp(l.total)]).concat([['', 'SUBTOTAL', '', r.pendapatanLain ? r.pendapatanLain.totalQty : 0, fmtRp(r.pendapatanLain ? r.pendapatanLain.total : 0)]]) });
       if (fs.category) sheets.push({ name: 'Kategori (Semua Outlet)', headers: ['Kategori','Qty','Total'], rows: (r.categoryBreakdown ? r.categoryBreakdown.lines : []).map(l => [l.category, l.qty, fmtRp(l.total)]).concat([['Total', r.totalQtyKategori || 0, fmtRp(r.categoryBreakdown ? r.categoryBreakdown.total : 0)]]) });
       if (fs.kasirPenerimaan) sheets.push({ name: 'Total Penerimaan Kasir', headers: ['Nama Kasir','Posisi','Total Uang Tunai','Total QRIS+Transfer+Debit+Kredit','Jumlah'], rows: (r.kasirPenerimaan ? r.kasirPenerimaan.lines : []).map(l => [l.cashierName, l.posisi, fmtRp(l.tunai), fmtRp(l.nonTunai), fmtRp(l.jumlah)]).concat([['Total', '', fmtRp(r.kasirPenerimaan ? r.kasirPenerimaan.totalTunai : 0), fmtRp(r.kasirPenerimaan ? r.kasirPenerimaan.totalNonTunai : 0), fmtRp(r.kasirPenerimaan ? r.kasirPenerimaan.totalJumlah : 0)]]) });
 
