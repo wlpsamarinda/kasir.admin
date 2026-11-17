@@ -947,7 +947,7 @@
     let dbRangeStart = todayStr();
     let dbRangeEnd = todayStr();
     let dbActivePreset = 'today';
-    let dbPenerimaanPie = null, dbSalesChart = null, dbExpenseChart = null, dbCategoryChart = null, dbTopProductChart = null;
+    let dbGabPie = null, dbPenerimaanPie = null, dbSalesChart = null, dbExpenseChart = null, dbCategoryChart = null, dbTopProductChart = null;
 
     function pad2_(n) { return n < 10 ? '0' + n : '' + n; }
     function toDateStr_(d) { return d.getFullYear() + '-' + pad2_(d.getMonth() + 1) + '-' + pad2_(d.getDate()); }
@@ -1049,6 +1049,29 @@
             </div>
           </div>
         </div>
+
+        ${showFinanceWidgets ? `
+        <div class="row g-3 mb-4">
+          <div class="col-lg-8">
+            <div class="card p-3 shadow-sm metric-card h-100" style="border-left:4px solid #7c3aed;">
+              <h6 class="mb-1"><i class="fa-solid fa-sack-dollar me-1" style="color:#7c3aed"></i>Total Pendapatan <span class="small text-muted fw-normal">(Penjualan Kasir + Pendapatan Lainnya)</span></h6>
+              <h4 id="m-gab-total" class="fw-bold mb-2" style="color:#7c3aed">Rp 0</h4>
+              <div class="row g-2 small">
+                <div class="col-md-5">
+                  <div class="d-flex justify-content-between"><span class="text-muted">Penjualan Kasir (bersih)</span><span id="m-gab-sales" class="fw-semibold">Rp 0</span></div>
+                  <div class="d-flex justify-content-between"><span class="text-muted">Pendapatan Lainnya</span><span id="m-gab-lain" class="fw-semibold">Rp 0</span></div>
+                </div>
+                <div class="col-md-7"><div class="text-muted mb-1">Rincian Pendapatan Lainnya</div><div id="m-gab-lain-list" class="border-start ps-2"><span class="text-muted">-</span></div></div>
+              </div>
+            </div>
+          </div>
+          <div class="col-lg-4">
+            <div class="card p-3 shadow-sm h-100">
+              <h6 class="mb-2"><i class="fa-solid fa-chart-pie me-1" style="color:#7c3aed"></i>Komposisi Pendapatan</h6>
+              <div style="position:relative;height:190px;"><canvas id="db-chart-gab-pie"></canvas></div>
+            </div>
+          </div>
+        </div>` : ''}
 
         ${!isKasir ? `
         <div class="row g-3 mb-4">
@@ -1929,6 +1952,24 @@
         fillUnitWidget_('wahana', 'Ride');
         fillUnitWidget_('resto', 'Resto');
 
+        if (res.finance && res.finance.pendapatanLain && $('#m-gab-total').length) {
+          let pl = res.finance.pendapatanLain;
+          $('#m-gab-total').text(fmtRp(res.finance.totalPendapatanGabungan));
+          $('#m-gab-sales').text(fmtRp(res.metrics.totalSalesToday));
+          $('#m-gab-lain').text(fmtRp(pl.total));
+          $('#m-gab-lain-list').html((pl.byType || []).map(t => `<div class="d-flex justify-content-between"><span>${esc(t.label)} <span class="text-muted">(${t.count})</span></span><span class="fw-semibold">${fmtRp(t.total)}</span></div>`).join('') || '<span class="text-muted">Tidak ada pendapatan lainnya pada periode ini</span>');
+          if (dbGabPie) dbGabPie.destroy();
+          dbGabPie = new Chart(document.getElementById('db-chart-gab-pie'), {
+            type: 'doughnut',
+            data: { labels: ['Loket Masuk', 'Loket Wahana', 'Resto', 'Pendapatan Lainnya'],
+              datasets: [{ data: [res.metrics.totalMasuk, res.metrics.totalWahana, res.metrics.totalResto, pl.total], backgroundColor: ['#0284c7', '#16a34a', '#f59e0b', '#7c3aed'] }] },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' }, tooltip: { callbacks: { label: function(c) {
+              let tot = (c.dataset.data.reduce((a, b) => a + (Number(b) || 0), 0)) || 1;
+              return c.label + ': ' + fmtRp(c.parsed) + ' (' + (c.parsed / tot * 100).toFixed(1) + '%)';
+            } } } } }
+          });
+        }
+
         if (res.finance && $('#m-exp-total').length) {
           $('#m-exp-total').text(fmtRp(res.finance.totalPengeluaran));
           $('#m-exp-omset').text(fmtRp(res.finance.pengeluaranOmset));
@@ -1951,6 +1992,7 @@
               labels: labels,
               datasets: [
                 { label: 'Pendapatan', data: res.chart.sales, backgroundColor: '#0284c7' },
+                { label: 'Pendapatan Lainnya', data: res.chart.other || [], backgroundColor: '#7c3aed' },
                 { label: 'Pengeluaran', data: res.chart.expenses, backgroundColor: '#dc3545' }
               ]
             },
@@ -3048,11 +3090,13 @@
           </div>
           <div class="text-start mb-2">
             <label class="form-label small fw-bold mb-1">Potongan / DP (opsional)</label>
+            ${DP_SELECT_HTML_('pos-dpref')}
             <input id="pos-discount" type="number" min="0" class="swal2-input m-0" style="width:100%" placeholder="0">
             <div class="form-text small mt-1">Isi bila sebagian sudah dibayar lewat DP. Total dibayar: <strong id="pos-net">-</strong></div>
           </div>`,
         confirmButtonText: 'Tambah ke Keranjang', showCancelButton: true, focusConfirm: false,
         didOpen: () => {
+          dpInit_(unit, '', 'pos-dpref', 'pos-discount', 'pos-total', '', (posCart[unit] || []).map(l => l.dpRefId).filter(Boolean));
           const qtyInput = document.getElementById('pos-qty');
           const totalInput = document.getElementById('pos-total');
           totalInput.disabled = !hargaFleksibel;
@@ -3091,6 +3135,7 @@
           if (discVal < 0 || discVal > Number(totalVal)) { Swal.showValidationMessage('Potongan tidak boleh negatif atau lebih besar dari Total Harga'); return false; }
           return {
             qty: qty, totalPrice: Number(totalVal), discount: discVal,
+            dpRefId: (discVal > 0 ? ((document.getElementById('pos-dpref') || {}).value || '') : ''),
             stockStartManual: usesStock ? readVal('pos-stockstart') : null,
             stockInManual: usesStock ? readVal('pos-stockin') : null,
             stockOutManual: usesStock ? readVal('pos-stockout') : null,
@@ -3106,7 +3151,7 @@
         posCart[unit].push({
           tempId: 'c' + Date.now() + Math.random().toString(36).slice(2, 7),
           productCode: p.ProductCode, productName: p.ProductName, variant: p.Variant, category: p.Category,
-          unit: p.Unit, unitPrice: Number(p.SellPrice), qty: v.qty, totalPrice: v.totalPrice, discount: v.discount || 0,
+          unit: p.Unit, unitPrice: Number(p.SellPrice), qty: v.qty, totalPrice: v.totalPrice, discount: v.discount || 0, dpRefId: v.dpRefId || '',
           hargaFleksibel: hargaFleksibel, serialStart: v.serialStart, serialEnd: v.serialEnd,
           stockStartManual: v.stockStartManual, stockInManual: v.stockInManual,
           stockOutManual: v.stockOutManual, stockEndManual: v.stockEndManual,
@@ -3158,7 +3203,7 @@
           <div class="pos-cart-item-main">
             <div class="fw-bold small">${esc(l.productName)}${l.variant && l.variant !== '-' ? ' (' + esc(l.variant) + ')' : ''}</div>
             <div class="text-muted small">${detail}</div>
-            ${l.discount ? `<div class="small text-danger">Potongan/DP - ${fmtRp(l.discount)} (dari ${fmtRp(l.totalPrice)})</div>` : ''}
+            ${l.discount ? `<div class="small text-danger">${l.dpRefId ? 'DP' : 'Potongan'} - ${fmtRp(l.discount)} (dari ${fmtRp(l.totalPrice)})</div>` : ''}
           </div>
           <div class="text-end flex-shrink-0">
             <div class="fw-bold small">${fmtRp(netLine)}</div>
@@ -3181,11 +3226,18 @@
     function editPosCartDiscount(unit, tempId) {
       const l = (posCart[unit] || []).find(x => x.tempId === tempId); if (!l) return;
       Swal.fire({
-        title: 'Potongan / DP', html: '<div class="small text-muted mb-2">' + esc(l.productName) + ' &middot; Total ' + fmtRp(l.totalPrice) + '</div>',
-        input: 'number', inputValue: l.discount || '', inputAttributes: { min: 0, step: 'any', placeholder: '0' },
+        title: 'Potongan / DP', html: '<div class="small text-muted mb-2">' + esc(l.productName) + ' &middot; Total ' + fmtRp(l.totalPrice) + '</div>'
+          + '<input type="hidden" id="cartdisc-total" value="' + Number(l.totalPrice) + '">' + DP_SELECT_HTML_('cartdisc-dpref')
+          + '<input id="cartdisc-val" type="number" min="0" step="any" class="swal2-input m-0" style="width:100%" placeholder="0" value="' + (l.discount || '') + '">',
+        didOpen: () => dpInit_(unit, '', 'cartdisc-dpref', 'cartdisc-val', 'cartdisc-total', l.dpRefId || '', (posCart[unit] || []).filter(x => x.tempId !== tempId).map(x => x.dpRefId).filter(Boolean)),
         showCancelButton: true, confirmButtonText: 'Terapkan', cancelButtonText: 'Batal',
-        inputValidator: v => { const n = Number(v) || 0; if (n < 0) return 'Potongan tidak boleh negatif'; if (n > Number(l.totalPrice)) return 'Potongan tidak boleh lebih besar dari total ' + fmtRp(l.totalPrice); }
-      }).then(r => { if (r.isConfirmed) { l.discount = Number(r.value) || 0; renderPosCartPanel(unit); } });
+        preConfirm: () => {
+          const n = Number(document.getElementById('cartdisc-val').value) || 0;
+          if (n < 0) { Swal.showValidationMessage('Potongan tidak boleh negatif'); return false; }
+          if (n > Number(l.totalPrice)) { Swal.showValidationMessage('Potongan tidak boleh lebih besar dari total ' + fmtRp(l.totalPrice)); return false; }
+          return { n: n, dp: n > 0 ? (document.getElementById('cartdisc-dpref').value || '') : '' };
+        }
+      }).then(r => { if (r.isConfirmed) { l.discount = r.value.n; l.dpRefId = r.value.dp; renderPosCartPanel(unit); } });
     }
 
     // Pratinjau "Total dibayar" pada form penjualan (Total Harga - Potongan/DP);
@@ -3239,7 +3291,7 @@
             isEdit: false, saleId: null,
             productCode: line.productCode, productName: line.productName, variant: line.variant,
             category: line.category, unit: line.unit, unitPrice: line.unitPrice,
-            totalPrice: line.totalPrice, discount: line.discount || 0, qty: line.qty,
+            totalPrice: line.totalPrice, discount: line.discount || 0, dpRefId: line.dpRefId || '', qty: line.qty,
             serialStart: line.serialStart, serialEnd: line.serialEnd,
             stockStartManual: line.stockStartManual, stockInManual: line.stockInManual,
             stockOutManual: line.stockOutManual, stockEndManual: line.stockEndManual,
@@ -3308,6 +3360,35 @@
     };
     const SALES_FORM_STOCK_KEYS = ['StockStart', 'StockIn', 'StockOut', 'StockEnd'];
 
+    // ===== Dropdown DP (Potongan/DP) di input penjualan =====
+    // Daftar DP = inputan Penerimaan DP sebelumnya yang belum dipakai transaksi
+    // lain. Memilih DP mengisi & mengunci nilai potongan; "manual" = isi sendiri.
+    function dpInit_(unit, saleId, selId, discId, totalId, selectedId, takenIds) {
+      const sel = document.getElementById(selId), disc = document.getElementById(discId), tot = document.getElementById(totalId);
+      if (!sel || !disc) return;
+      google.script.run.withSuccessHandler(res => {
+        const list = ((res && res.success) ? res.data : []).filter(d => d.id === selectedId || (takenIds || []).indexOf(d.id) === -1);
+        sel.innerHTML = '<option value="">' + (list.length ? '— Manual / tanpa DP —' : '— Tidak ada DP tersedia (isi manual) —') + '</option>'
+          + list.map(d => '<option value="' + esc(d.id) + '" data-amt="' + d.amount + '">' + esc(fmtDate(d.date)) + ' · ' + fmtRp(d.amount) + ' · ' + esc(d.label) + (d.source === 'keuangan' ? ' [Keuangan]' : '') + '</option>').join('');
+        if (selectedId && list.some(d => d.id === selectedId)) sel.value = selectedId;
+        apply(false);
+      }).withFailureHandler(function() {}).getAvailableDPList(unit, saleId || '', sessionToken);
+      function apply(userChange) {
+        const o = sel.options[sel.selectedIndex];
+        if (sel.value && o) {
+          const amt = Number(o.dataset.amt) || 0, t = tot ? Number(tot.value) : 0;
+          disc.value = (t > 0 ? Math.min(amt, t) : amt);
+          disc.readOnly = true; disc.classList.add('bg-light');
+        } else {
+          disc.readOnly = false; disc.classList.remove('bg-light');
+          if (userChange) disc.value = '';
+        }
+      }
+      sel.addEventListener('change', () => apply(true));
+      if (tot) tot.addEventListener('input', () => { if (sel.value) apply(false); });
+    }
+    const DP_SELECT_HTML_ = id => `<select id="${id}" class="form-select form-select-sm mb-1"><option value="">Memuat daftar DP...</option></select>`;
+
     function openSalesModal(unit, r) {
       const isEdit = !!r;
       google.script.run.withSuccessHandler(function(products) {
@@ -3364,6 +3445,7 @@
                 </div>
                 <div class="text-start mb-2">
                   <label class="form-label small fw-bold mb-1">Potongan / DP (opsional)</label>
+                  ${DP_SELECT_HTML_('swal-dpref')}
                   <input id="swal-discount" type="number" min="0" class="swal2-input m-0" style="width:100%" placeholder="0" value="${isEdit && Number(r.Discount) ? Number(r.Discount) : ''}">
                   <div class="form-text small mt-1">Isi bila sebagian sudah dibayar lewat DP. Total dibayar: <strong id="swal-net">-</strong></div>
                 </div>
@@ -3378,6 +3460,7 @@
                 html: buildModalHtml(methodOptions),
                 confirmButtonText: 'Simpan', showCancelButton: true, focusConfirm: false,
                 didOpen: () => {
+                  dpInit_(unit, isEdit ? r.SaleID : '', 'swal-dpref', 'swal-discount', 'swal-total-price', isEdit ? (r.DPRefID || '') : '', []);
                   const searchInput = document.getElementById('swal-product-search');
                   const codeInput = document.getElementById('swal-product-code');
                   const resultsBox = document.getElementById('swal-product-results');
@@ -3540,6 +3623,7 @@
                     productCode: selected.ProductCode, productName: selected.ProductName, variant: selected.Variant,
                     category: selected.Category, unit: selected.Unit, unitPrice: selected.SellPrice,
                     totalPrice: Number(totalPriceVal), discount: discountVal,
+                    dpRefId: (document.getElementById('swal-dpref') || {}).value || '',
                     qty: qty,
                     serialStart: readField('SerialStart', 'swal-serial-start'),
                     serialEnd: readField('SerialEnd', 'swal-serial-end'),
