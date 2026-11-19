@@ -1083,8 +1083,9 @@
         ${showVisitors ? `
         <div class="card p-3 shadow-sm mb-4" id="visitor-panel" style="border-left:4px solid #0284c7;">
           <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-1">
-            <h6 class="mb-0 fw-bold"><i class="fa-solid fa-people-group me-2 text-primary"></i>Kontrol Pengunjung <span class="small text-muted fw-normal">(total Qty penjualan kategori Tiket Masuk)</span></h6>
-            <div class="small text-muted" id="vs-label">Memuat...</div>
+            <h6 class="mb-0 fw-bold"><i class="fa-solid fa-people-group me-2 text-primary"></i>Kontrol Pengunjung <span class="small text-muted fw-normal" id="vs-source">(total Qty penjualan kategori Tiket Masuk)</span></h6>
+            <div class="d-flex align-items-center gap-2"><div class="small text-muted" id="vs-label">Memuat...</div>
+            ${(role === 'Owner' || role === 'Admin') ? '<button type="button" class="btn btn-sm btn-outline-secondary" onclick="openVisitorSettings()" title="Atur kategori yang dihitung sebagai pengunjung"><i class="fa-solid fa-gear"></i></button>' : ''}</div>
           </div>
           <div class="row g-3 my-1 mb-3">
             <div class="col-6 col-lg-3"><div class="border rounded p-2 h-100"><div class="small text-muted text-uppercase">Total Pengunjung</div><div class="fs-3 fw-bold text-primary" id="vs-total">-</div><div class="small" id="vs-change"></div></div></div>
@@ -1791,6 +1792,40 @@
     // dari loadDashboardData supaya angka pengunjung, penjualan & penerimaan
     // kasir selalu untuk rentang yang sama.
     let vsChart = null, vsReqSeq = 0;
+    // Pengaturan metrik Kontrol Pengunjung: pilih kategori (multi-pilih) yang dihitung.
+    function openVisitorSettings() {
+      google.script.run.withSuccessHandler(function(res) {
+        if (!res || !res.success) return Swal.fire('Gagal', (res && res.message) || 'Gagal memuat', 'error');
+        const sel = (res.selected || []).map(x => x.toLowerCase());
+        const items = res.categories.map((n, i) => `<label class="list-group-item d-flex gap-2 py-1"><input class="form-check-input vs-cat-chk" type="checkbox" value="${esc(n)}" ${sel.indexOf(n.toLowerCase()) !== -1 || (!sel.length && n.toLowerCase().indexOf('tiket masuk') !== -1) ? 'checked' : ''}><span>${esc(n)}</span></label>`).join('');
+        Swal.fire({
+          title: 'Metrik Kontrol Pengunjung',
+          html: '<div class="small text-muted text-start mb-2">Centang kategori penjualan yang dihitung sebagai pengunjung (Qty). Bisa lebih dari satu, mis. Tiket Masuk, Tiket Terusan, IGTKI.</div>'
+            + '<input id="vs-cat-filter" class="form-control form-control-sm mb-2" placeholder="Cari kategori...">'
+            + '<div class="list-group text-start" id="vs-cat-list" style="max-height:300px;overflow:auto">' + (items || '<div class="p-2 text-muted">Belum ada kategori</div>') + '</div>',
+          showCancelButton: true, showDenyButton: true, confirmButtonText: 'Simpan', denyButtonText: 'Reset Default', cancelButtonText: 'Batal',
+          didOpen: () => {
+            document.getElementById('vs-cat-filter').addEventListener('input', function() {
+              const q = this.value.toLowerCase();
+              document.querySelectorAll('#vs-cat-list label').forEach(l => { l.style.display = l.textContent.toLowerCase().indexOf(q) === -1 ? 'none' : ''; });
+            });
+          },
+          preConfirm: () => {
+            const v = Array.from(document.querySelectorAll('.vs-cat-chk:checked')).map(x => x.value);
+            if (!v.length) { Swal.showValidationMessage('Pilih minimal satu kategori (atau klik Reset Default)'); return false; }
+            return v;
+          }
+        }).then(r => {
+          if (!r.isConfirmed && !r.isDenied) return;
+          google.script.run.withSuccessHandler(function(res2) {
+            if (!res2 || !res2.success) return Swal.fire('Gagal', (res2 && res2.message) || 'Gagal menyimpan', 'error');
+            Toast.fire({ icon: 'success', title: res2.message });
+            loadVisitorPanel();
+          }).withFailureHandler(errHandler).saveVisitorSettings(r.isDenied ? [] : r.value, sessionToken);
+        });
+      }).withFailureHandler(errHandler).getVisitorSettings(sessionToken);
+    }
+
     function loadVisitorPanel() {
       if (!$('#visitor-panel').length) return;
       const seq = ++vsReqSeq;
@@ -1801,6 +1836,7 @@
         const d = res.data;
         const rangeTxt = d.rangeStart === d.rangeEnd ? fmtDate(d.rangeStart) : (fmtDate(d.rangeStart) + ' - ' + fmtDate(d.rangeEnd));
         $('#vs-label').text('Periode: ' + rangeTxt + ' (' + d.days + ' hari)');
+        $('#vs-source').text('(total Qty penjualan kategori: ' + (d.categoriesUsed || ['Tiket Masuk']).join(', ') + ')');
         const nf = n => Number(n || 0).toLocaleString('id-ID');
         $('#vs-total').text(nf(d.total));
         $('#vs-avg').text(nf(d.avgPerDay));
@@ -2093,6 +2129,7 @@
           <div class="d-flex flex-wrap gap-2 mb-3">
             <button class="btn btn-primary" onclick="openProductModal()"><i class="fa-solid fa-plus me-2"></i>Tambah Produk</button>
             <button class="btn btn-outline-primary" onclick="fetchProductsTable()"><i class="fa-solid fa-rotate me-2"></i>Refresh Data</button>
+            ${(currentUser.role === 'Owner' || currentUser.role === 'Admin') ? '<button class="btn btn-warning" onclick="syncProductMasterDb()" title="Samakan Nama/Varian/Kategori/Satuan produk di semua data transaksi & riwayat dengan Master Produk"><i class="fa-solid fa-arrows-rotate me-2"></i>Sinkronisasi Database</button>' : ''}
             <button class="btn btn-outline-secondary" onclick="downloadProductTemplate()"><i class="fa-solid fa-download me-2"></i>Download Template</button>
             <label class="btn btn-outline-primary mb-0">
               <i class="fa-solid fa-file-import me-2"></i>Import dari Excel
@@ -2108,6 +2145,31 @@
           </table></div>
         </div>`);
       fetchProductsTable();
+    }
+
+    // Sinkronisasi Database: samakan Nama/Varian/Kategori/Satuan produk di semua
+    // sheet transaksi & riwayat dengan Master Produk (pratinjau dulu, lalu konfirmasi).
+    function syncProductMasterDb() {
+      Swal.fire({ title: 'Memeriksa data...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+      google.script.run.withSuccessHandler(function(res) {
+        if (!res.success) return Swal.fire('Gagal', res.message, 'error');
+        if (!res.totalCells) return Swal.fire('Sudah Sinkron', 'Semua data di database sudah sesuai Master Produk.', 'success');
+        let rows = res.sheets.map(s => `<tr><td>${esc(s.sheet)}</td><td class="text-end">${s.cells}</td><td class="small text-muted">${esc(s.sample)}</td></tr>`).join('');
+        Swal.fire({
+          title: 'Sinkronisasi Database', width: 640, icon: 'question',
+          html: `<div class="text-start small mb-2">Data berikut akan disamakan dengan Master Produk (Nama, Varian, Kategori, Satuan). Harga, qty, stok, dan nominal <b>tidak berubah</b>.</div>
+            <div class="table-responsive" style="max-height:280px;overflow:auto"><table class="table table-sm text-start"><thead><tr><th>Sheet</th><th class="text-end">Data</th><th>Contoh</th></tr></thead><tbody>${rows}</tbody></table></div>
+            <div class="small text-danger text-start">Disarankan backup database dulu. Total ${res.totalCells} data akan diperbarui.</div>`,
+          showCancelButton: true, confirmButtonText: 'Sinkronkan Sekarang', cancelButtonText: 'Batal'
+        }).then(function(r) {
+          if (!r.isConfirmed) return;
+          Swal.fire({ title: 'Menyinkronkan...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+          google.script.run.withSuccessHandler(function(r2) {
+            if (!r2.success) return Swal.fire('Gagal', r2.message, 'error');
+            Swal.fire('Selesai', r2.message, 'success');
+          }).withFailureHandler(errHandler).syncProductMasterData(false, sessionToken);
+        });
+      }).withFailureHandler(errHandler).syncProductMasterData(true, sessionToken);
     }
 
     let productsCache = [];
