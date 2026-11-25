@@ -7805,6 +7805,10 @@
           <div class="p-3 border rounded mt-2" style="background:rgba(2,132,199,.06)">
             ${finRow_('Total Pendapatan Kotor', r.totalPendapatanKotor, { bold: true })}
             ${finRow_('Total Pendapatan Lainnya (DP, Minus F&B, dll)', (r.pendapatanLain || {}).total || 0)}
+            ${finRow_('Penjualan Kotor (sebelum potongan)', (r.salesRecap || {}).kotor || 0)}
+            ${finRow_('Potongan/DP Dipakai', (r.salesRecap || {}).potonganDp || 0)}
+            ${finRow_('Potongan Lainnya', (r.salesRecap || {}).potonganLain || 0)}
+            ${finRow_('Penjualan Bersih', (r.salesRecap || {}).bersih || 0)}
           </div>
 
           <div class="p-3 border rounded mt-2">
@@ -7908,7 +7912,14 @@
         txt += `\nTotal : Tunai ${Number(r.kasirPenerimaan.totalTunai).toLocaleString('id-ID')} + Non Tunai ${Number(r.kasirPenerimaan.totalNonTunai).toLocaleString('id-ID')} = ${Number(r.kasirPenerimaan.totalJumlah).toLocaleString('id-ID')}\n\n`;
       }
       txt += `🟠 *Total Pendapatan Kotor* = ${Number(r.totalPendapatanKotor).toLocaleString('id-ID')}\n`;
-      txt += `🟣 *Total Pendapatan Lainnya* = ${Number((r.pendapatanLain || {}).total || 0).toLocaleString('id-ID')}\n\n`;
+      txt += `🟣 *Total Pendapatan Lainnya* = ${Number((r.pendapatanLain || {}).total || 0).toLocaleString('id-ID')}\n`;
+      {
+        const sr = r.salesRecap || {}, nf = v => Number(v || 0).toLocaleString('id-ID');
+        txt += `🧾 *Penjualan Kotor* = ${nf(sr.kotor)}\n`;
+        txt += `🔻 *Potongan/DP Dipakai* = ${nf(sr.potonganDp)}\n`;
+        if (Number(sr.potonganLain) > 0) txt += `🔻 *Potongan Lainnya* = ${nf(sr.potonganLain)}\n`;
+        txt += `🧾 *Penjualan Bersih* = ${nf(sr.bersih)}\n\n`;
+      }
       txt += `🟢 *Total Pendapatan Bersih*  = ${Number(r.totalPendapatanBersih).toLocaleString('id-ID')}\n`;
       txt += `💰 Total Penerimaan Uang Tunai Semua Kasir = ${Number(r.totalCash).toLocaleString('id-ID')}\n`;
       txt += `💳 Total Penerimaan QRIS+Transfer+Debit+Kredit Semua Kasir = ${Number(r.totalNonCash).toLocaleString('id-ID')}\n\n`;
@@ -7996,6 +8007,10 @@
         ['Total Saldo Awal', fmtRp(r.saldoAwalTotal)],
         ['Total Pendapatan Kotor', fmtRp(r.totalPendapatanKotor)],
           ['Total Pendapatan Lainnya (DP, Minus F&B, dll)', fmtRp(r.pendapatanLain ? r.pendapatanLain.total : 0)],
+          ['Penjualan Kotor (sebelum potongan)', fmtRp((r.salesRecap || {}).kotor || 0)],
+          ['Potongan/DP Dipakai', fmtRp((r.salesRecap || {}).potonganDp || 0)],
+          ['Potongan Lainnya', fmtRp((r.salesRecap || {}).potonganLain || 0)],
+          ['Penjualan Bersih', fmtRp((r.salesRecap || {}).bersih || 0)],
         ['Total Pendapatan Bersih', fmtRp(r.totalPendapatanBersih)],
         ['Total Penerimaan Uang Tunai Semua Kasir', fmtRp(r.totalCash)],
         ['Total Penerimaan QRIS+Transfer+Debit+Kredit Semua Kasir', fmtRp(r.totalNonCash)],
@@ -8050,6 +8065,10 @@
           ['Total Qty Rekapan Pendapatan Per Kategori', r.totalQtyKategori || 0],
           ['Total Pendapatan Kotor', fmtRp(r.totalPendapatanKotor)],
           ['Total Pendapatan Lainnya (DP, Minus F&B, dll)', fmtRp(r.pendapatanLain ? r.pendapatanLain.total : 0)],
+          ['Penjualan Kotor (sebelum potongan)', fmtRp((r.salesRecap || {}).kotor || 0)],
+          ['Potongan/DP Dipakai', fmtRp((r.salesRecap || {}).potonganDp || 0)],
+          ['Potongan Lainnya', fmtRp((r.salesRecap || {}).potonganLain || 0)],
+          ['Penjualan Bersih', fmtRp((r.salesRecap || {}).bersih || 0)],
           ['Total Pendapatan Bersih', fmtRp(r.totalPendapatanBersih)],
           ['Total Penerimaan Uang Tunai Semua Kasir', fmtRp(r.totalCash)],
           ['Total Penerimaan QRIS+Transfer+Debit+Kredit Semua Kasir', fmtRp(r.totalNonCash)],
