@@ -3158,7 +3158,7 @@
           </div>`,
         confirmButtonText: 'Tambah ke Keranjang', showCancelButton: true, focusConfirm: false,
         didOpen: () => {
-          dpInit_(unit, '', 'pos-dpref', 'pos-discount', 'pos-total', '', (posCart[unit] || []).map(l => l.dpRefId).filter(Boolean));
+          dpInit_(unit, '', 'pos-dpref', 'pos-discount', 'pos-total', '', dpCartTaken_(unit, ''));
           const qtyInput = document.getElementById('pos-qty');
           const totalInput = document.getElementById('pos-total');
           totalInput.disabled = !hargaFleksibel;
@@ -3291,7 +3291,7 @@
         title: 'Potongan / DP', html: '<div class="small text-muted mb-2">' + esc(l.productName) + ' &middot; Total ' + fmtRp(l.totalPrice) + '</div>'
           + '<input type="hidden" id="cartdisc-total" value="' + Number(l.totalPrice) + '">' + DP_SELECT_HTML_('cartdisc-dpref')
           + '<input id="cartdisc-val" type="number" min="0" step="any" class="swal2-input m-0" style="width:100%" placeholder="0" value="' + (l.discount || '') + '">',
-        didOpen: () => dpInit_(unit, '', 'cartdisc-dpref', 'cartdisc-val', 'cartdisc-total', l.dpRefId || '', (posCart[unit] || []).filter(x => x.tempId !== tempId).map(x => x.dpRefId).filter(Boolean)),
+        didOpen: () => dpInit_(unit, '', 'cartdisc-dpref', 'cartdisc-val', 'cartdisc-total', l.dpRefId || '', dpCartTaken_(unit, tempId)),
         showCancelButton: true, confirmButtonText: 'Terapkan', cancelButtonText: 'Batal',
         preConfirm: () => {
           const n = Number(document.getElementById('cartdisc-val').value) || 0;
@@ -3429,9 +3429,11 @@
       const sel = document.getElementById(selId), disc = document.getElementById(discId), tot = document.getElementById(totalId);
       if (!sel || !disc) return;
       google.script.run.withSuccessHandler(res => {
-        const list = ((res && res.success) ? res.data : []).filter(d => d.id === selectedId || (takenIds || []).indexOf(d.id) === -1);
+        // takenIds = { idDP: nilai yang sudah dipakai di keranjang lain } (belum tersimpan)
+        const taken = takenIds || {};
+        const list = ((res && res.success) ? res.data : []).map(d => Object.assign({}, d, { amount: d.amount - (taken[d.id] || 0) })).filter(d => d.amount > 0.5);
         sel.innerHTML = '<option value="">' + (list.length ? '— Manual / tanpa DP —' : '— Tidak ada DP tersedia (isi manual) —') + '</option>'
-          + list.map(d => '<option value="' + esc(d.id) + '" data-amt="' + d.amount + '">' + esc(fmtDate(d.date)) + ' · ' + fmtRp(d.amount) + ' · ' + esc(d.label) + (d.source === 'keuangan' ? ' [Keuangan]' : '') + '</option>').join('');
+          + list.map(d => '<option value="' + esc(d.id) + '" data-amt="' + d.amount + '">' + esc(fmtDate(d.date)) + ' · ' + (d.original && d.original - d.amount > 0.5 ? 'sisa ' : '') + fmtRp(d.amount) + (d.original && d.original - d.amount > 0.5 ? ' dari ' + fmtRp(d.original) : '') + ' · ' + esc(d.label) + (d.source === 'keuangan' ? ' [Keuangan]' : '') + '</option>').join('');
         if (selectedId && list.some(d => d.id === selectedId)) sel.value = selectedId;
         apply(false);
       }).withFailureHandler(function() {}).getAvailableDPList(unit, saleId || '', sessionToken);
@@ -3439,15 +3441,29 @@
         const o = sel.options[sel.selectedIndex];
         if (sel.value && o) {
           const amt = Number(o.dataset.amt) || 0, t = tot ? Number(tot.value) : 0;
+          // Otomatis terisi = yang terkecil antara sisa DP dan total harga; boleh
+          // dikurangi manual (sisa DP tetap tersedia untuk transaksi/outlet lain).
           disc.value = (t > 0 ? Math.min(amt, t) : amt);
-          disc.readOnly = true; disc.classList.add('bg-light');
+          disc.max = amt; disc.readOnly = false; disc.classList.remove('bg-light');
         } else {
-          disc.readOnly = false; disc.classList.remove('bg-light');
+          disc.readOnly = false; disc.classList.remove('bg-light'); disc.removeAttribute('max');
           if (userChange) disc.value = '';
         }
       }
       sel.addEventListener('change', () => apply(true));
+      disc.addEventListener('input', () => {
+        const o = sel.options[sel.selectedIndex];
+        if (sel.value && o && Number(disc.value) > Number(o.dataset.amt)) disc.value = o.dataset.amt;
+      });
       if (tot) tot.addEventListener('input', () => { if (sel.value) apply(false); });
+    }
+    // Total DP yang sudah "dipakai" baris keranjang lain (belum disimpan) per DP
+    function dpCartTaken_(unit, exceptTempId) {
+      const m = {};
+      Object.keys(posCart || {}).forEach(u => (posCart[u] || []).forEach(l => {
+        if (l.dpRefId && l.tempId !== exceptTempId) m[l.dpRefId] = (m[l.dpRefId] || 0) + (Number(l.discount) || 0);
+      }));
+      return m;
     }
     const DP_SELECT_HTML_ = id => `<select id="${id}" class="form-select form-select-sm mb-1"><option value="">Memuat daftar DP...</option></select>`;
 
@@ -3522,7 +3538,7 @@
                 html: buildModalHtml(methodOptions),
                 confirmButtonText: 'Simpan', showCancelButton: true, focusConfirm: false,
                 didOpen: () => {
-                  dpInit_(unit, isEdit ? r.SaleID : '', 'swal-dpref', 'swal-discount', 'swal-total-price', isEdit ? (r.DPRefID || '') : '', []);
+                  dpInit_(unit, isEdit ? r.SaleID : '', 'swal-dpref', 'swal-discount', 'swal-total-price', isEdit ? (r.DPRefID || '') : '', {});
                   const searchInput = document.getElementById('swal-product-search');
                   const codeInput = document.getElementById('swal-product-code');
                   const resultsBox = document.getElementById('swal-product-results');
