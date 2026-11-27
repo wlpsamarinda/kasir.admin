@@ -1061,8 +1061,8 @@
                 <div class="col-md-5">
                   <div class="d-flex justify-content-between"><span class="text-muted">Omzet Terealisasi (termasuk DP lama)</span><span id="m-gab-sales" class="fw-semibold">Rp 0</span></div>
                   <div class="d-flex justify-content-between"><span class="text-muted">Pendapatan Lainnya</span><span id="m-gab-lain" class="fw-semibold">Rp 0</span></div>
-                  <div class="d-flex justify-content-between border-top mt-1 pt-1"><span class="text-muted">DP lama dipakai <span class="small">(sudah dalam omzet)</span></span><span id="m-gab-dplama" class="fw-semibold">Rp 0</span></div>
-                  <div class="d-flex justify-content-between"><span class="text-muted">DP baru diterima <span class="small">(bukan omzet)</span></span><span id="m-gab-dpbaru" class="fw-semibold">Rp 0</span></div>
+                  <div class="d-flex justify-content-between border-top mt-1 pt-1"><span class="text-muted">Realisasi DP Pelanggan <span class="small">(sudah dalam omzet)</span></span><span id="m-gab-dplama" class="fw-semibold">Rp 0</span></div>
+                  <div class="d-flex justify-content-between"><span class="text-muted">Penerimaan DP Pelanggan <span class="small">(Liabilitas)</span></span><span id="m-gab-dpbaru" class="fw-semibold">Rp 0</span></div>
                   <div class="d-flex justify-content-between"><span class="text-muted">Saldo DP pelanggan</span><span id="m-gab-dpsaldo" class="fw-semibold">Rp 0</span></div>
                   <div class="d-flex justify-content-between border-top mt-1 pt-1"><span class="fw-semibold">Total Penerimaan Kas</span><span id="m-gab-kas" class="fw-bold">Rp 0</span></div>
                 </div>
@@ -7837,10 +7837,10 @@
           ${finKasirTable_(r.kasirPenerimaan || { lines: [], totalTunai: 0, totalNonTunai: 0, totalJumlah: 0 })}
           <div class="p-3 border rounded mt-2" style="background:rgba(2,132,199,.06)">
             ${finRow_('Omzet Terealisasi (Penjualan)', (r.salesRecap || {}).omzet || 0, { bold: true })}
-            ${finRow_('Dilunasi dengan DP Lama (bagian dari omzet)', (r.dpRecap || {}).dpLama || 0)}
+            ${finRow_('Realisasi DP Pelanggan', (r.dpRecap || {}).dpLama || 0)}
             ${finRow_('Diskon/Potongan Manual (mengurangi omzet)', (r.salesRecap || {}).potonganManual || 0)}
             ${finRow_('Penerimaan Kasir (tunai + non tunai + pelunasan)', (r.dpRecap || {}).penerimaanKasirNonDp || 0, { border: true })}
-            ${finRow_('DP Baru Diterima (uang muka, bukan omzet)', (r.dpRecap || {}).dpBaru || 0)}
+            ${finRow_('Penerimaan DP Pelanggan (Liabilitas)', (r.dpRecap || {}).dpBaru || 0)}
             ${finRow_('Penerimaan Lainnya (Minus F&B, dll)', (r.dpRecap || {}).lainNonDp || 0)}
             ${finRow_('Total Penerimaan Kas', r.totalPenerimaanKas || 0, { bold: true })}
           </div>
@@ -7853,9 +7853,9 @@
           </div>
 
           <div class="p-3 border rounded mt-2">
-            ${finRow_('Total Penerimaan Semua Kasir (termasuk DP baru)', r.totalPendapatanBersih, { bold: true })}
-            ${finRow_('Total Penerimaan Uang Tunai Semua Kasir', r.totalCash)}
-            ${finRow_('Total Penerimaan QRIS+Transfer+Debit+Kredit Semua Kasir', r.totalNonCash)}
+            ${finRow_('Total Penerimaan Semua Kasir', (r.dpRecap || {}).penerimaanKasirNonDp || 0, { bold: true })}
+            ${finRow_('Total Penerimaan Uang Tunai Semua Kasir', (r.dpRecap || {}).kasirCashNonDp || 0)}
+            ${finRow_('Total Penerimaan QRIS+Transfer+Debit+Kredit Semua Kasir', (r.dpRecap || {}).kasirNonCashNonDp || 0)}
           </div>
 
           <div class="row g-3 mt-1">
@@ -7957,16 +7957,16 @@
       {
         const dr = r.dpRecap || {}, sr = r.salesRecap || {}, nf = v => Number(v || 0).toLocaleString('id-ID');
         txt += `🧾 *Omzet Terealisasi (Penjualan)* = ${nf(sr.omzet)}\n`;
-        txt += `🔹 Dilunasi dengan DP lama = ${nf(dr.dpLama)}\n`;
+        txt += `🔹 Realisasi DP Pelanggan = ${nf(dr.dpLama)}\n`;
         if (Number(sr.potonganManual) > 0) txt += `🔻 Diskon/Potongan manual = ${nf(sr.potonganManual)}\n`;
         txt += `🟠 Penerimaan Kasir (tunai + non tunai + pelunasan) = ${nf(dr.penerimaanKasirNonDp)}\n`;
-        txt += `🟣 DP Baru Diterima (bukan omzet) = ${nf(dr.dpBaru)}\n`;
+        txt += `🟣 Penerimaan DP Pelanggan (Liabilitas) = ${nf(dr.dpBaru)}\n`;
         if (Number(dr.lainNonDp) > 0) txt += `🟣 Penerimaan Lainnya = ${nf(dr.lainNonDp)}\n`;
         txt += `🟢 *Total Penerimaan Kas* = ${nf(r.totalPenerimaanKas)}\n\n`;
       }
-      txt += `🟢 *Total Penerimaan Semua Kasir (termasuk DP baru)* = ${Number(r.totalPendapatanBersih).toLocaleString('id-ID')}\n`;
-      txt += `💰 Total Penerimaan Uang Tunai Semua Kasir = ${Number(r.totalCash).toLocaleString('id-ID')}\n`;
-      txt += `💳 Total Penerimaan QRIS+Transfer+Debit+Kredit Semua Kasir = ${Number(r.totalNonCash).toLocaleString('id-ID')}\n\n`;
+      txt += `🟢 *Total Penerimaan Semua Kasir* = ${Number((r.dpRecap || {}).penerimaanKasirNonDp || 0).toLocaleString('id-ID')}\n`;
+      txt += `💰 Total Penerimaan Uang Tunai Semua Kasir = ${Number((r.dpRecap || {}).kasirCashNonDp || 0).toLocaleString('id-ID')}\n`;
+      txt += `💳 Total Penerimaan QRIS+Transfer+Debit+Kredit Semua Kasir = ${Number((r.dpRecap || {}).kasirNonCashNonDp || 0).toLocaleString('id-ID')}\n\n`;
       txt += `🟨 Pengeluaran dari Brankas\n${expLines(r.expBrangkas)}\n`;
       txt += `🟨 *Total Pengeluaran Brankas* = Rp ${Number(r.totalExpBrangkas).toLocaleString('id-ID')}\n\n`;
       txt += `🟦 Pengeluaran dari Rekening PT\n${expLines(r.expRekening)}\n`;
@@ -8052,15 +8052,15 @@
         ['Saldo Awal Rekening', fmtRp(r.saldoAwalRekening)],
         ['Total Saldo Awal', fmtRp(r.saldoAwalTotal)],
         ['Omzet Terealisasi (Penjualan)', fmtRp((r.salesRecap || {}).omzet || 0)],
-        ['Dilunasi dengan DP Lama (bagian dari omzet)', fmtRp((r.dpRecap || {}).dpLama || 0)],
+        ['Realisasi DP Pelanggan', fmtRp((r.dpRecap || {}).dpLama || 0)],
         ['Diskon/Potongan Manual (mengurangi omzet)', fmtRp((r.salesRecap || {}).potonganManual || 0)],
         ['Penerimaan Kasir (tunai + non tunai + pelunasan)', fmtRp((r.dpRecap || {}).penerimaanKasirNonDp || 0)],
-        ['DP Baru Diterima (uang muka, bukan omzet)', fmtRp((r.dpRecap || {}).dpBaru || 0)],
+        ['Penerimaan DP Pelanggan (Liabilitas)', fmtRp((r.dpRecap || {}).dpBaru || 0)],
         ['Penerimaan Lainnya (Minus F&B, dll)', fmtRp((r.dpRecap || {}).lainNonDp || 0)],
         ['Total Penerimaan Kas', fmtRp(r.totalPenerimaanKas || 0)],
-        ['Total Penerimaan Semua Kasir (termasuk DP baru)', fmtRp(r.totalPendapatanBersih)],
-        ['Total Penerimaan Uang Tunai Semua Kasir', fmtRp(r.totalCash)],
-        ['Total Penerimaan QRIS+Transfer+Debit+Kredit Semua Kasir', fmtRp(r.totalNonCash)],
+        ['Total Penerimaan Semua Kasir', fmtRp((r.dpRecap || {}).penerimaanKasirNonDp || 0)],
+        ['Total Penerimaan Uang Tunai Semua Kasir', fmtRp((r.dpRecap || {}).kasirCashNonDp || 0)],
+        ['Total Penerimaan QRIS+Transfer+Debit+Kredit Semua Kasir', fmtRp((r.dpRecap || {}).kasirNonCashNonDp || 0)],
         ['Total Pengeluaran Brangkas', fmtRp(r.totalExpBrangkas)],
         ['Total Pengeluaran Rekening', fmtRp(r.totalExpRekening)],
         ['Total Pengeluaran Seluruhnya', fmtRp(r.totalExpSeluruhnya)],
@@ -8112,15 +8112,15 @@
           ['Subtotal Qty Kasir Resto', r.totalQtyResto || 0],
           ['Total Qty Rekapan Pendapatan Per Kategori', r.totalQtyKategori || 0],
           ['Omzet Terealisasi (Penjualan)', fmtRp((r.salesRecap || {}).omzet || 0)],
-          ['Dilunasi dengan DP Lama (bagian dari omzet)', fmtRp((r.dpRecap || {}).dpLama || 0)],
+          ['Realisasi DP Pelanggan', fmtRp((r.dpRecap || {}).dpLama || 0)],
           ['Diskon/Potongan Manual (mengurangi omzet)', fmtRp((r.salesRecap || {}).potonganManual || 0)],
           ['Penerimaan Kasir (tunai + non tunai + pelunasan)', fmtRp((r.dpRecap || {}).penerimaanKasirNonDp || 0)],
-          ['DP Baru Diterima (uang muka, bukan omzet)', fmtRp((r.dpRecap || {}).dpBaru || 0)],
+          ['Penerimaan DP Pelanggan (Liabilitas)', fmtRp((r.dpRecap || {}).dpBaru || 0)],
           ['Penerimaan Lainnya (Minus F&B, dll)', fmtRp((r.dpRecap || {}).lainNonDp || 0)],
           ['Total Penerimaan Kas', fmtRp(r.totalPenerimaanKas || 0)],
-          ['Total Penerimaan Semua Kasir (termasuk DP baru)', fmtRp(r.totalPendapatanBersih)],
-          ['Total Penerimaan Uang Tunai Semua Kasir', fmtRp(r.totalCash)],
-          ['Total Penerimaan QRIS+Transfer+Debit+Kredit Semua Kasir', fmtRp(r.totalNonCash)],
+          ['Total Penerimaan Semua Kasir', fmtRp((r.dpRecap || {}).penerimaanKasirNonDp || 0)],
+          ['Total Penerimaan Uang Tunai Semua Kasir', fmtRp((r.dpRecap || {}).kasirCashNonDp || 0)],
+          ['Total Penerimaan QRIS+Transfer+Debit+Kredit Semua Kasir', fmtRp((r.dpRecap || {}).kasirNonCashNonDp || 0)],
           ['Total Pengeluaran Brangkas', fmtRp(r.totalExpBrangkas)],
           ['Total Pengeluaran Rekening', fmtRp(r.totalExpRekening)],
           ['Total Pengeluaran Seluruhnya', fmtRp(r.totalExpSeluruhnya)],
