@@ -6763,6 +6763,7 @@
       { key: 'ride', label: 'Pendapatan Kasir Loket Wahana' },
       { key: 'resto', label: 'Pendapatan Kasir Resto' },
       { key: 'lain', label: 'Pendapatan Lainnya (DP, Minus F&B, Minus Tiket, Potongan Pelanggaran, Piutang Karyawan, dll)' },
+      { key: 'dp', label: 'Transaksi DP per Pelanggan (Penerimaan DP & Realisasi DP)' },
       { key: 'category', label: 'Total Penjualan per Kategori (Semua Outlet)' },
       { key: 'kasirPenerimaan', label: 'Total Penjualan / Penerimaan per Kasir' },
       { key: 'expBrangkas', label: 'Total Pengeluaran dari Brangkas' },
@@ -7706,6 +7707,26 @@
     function finLainRows_(pl) {
       return ((pl && pl.lines) || []).map(l => [l.label + (l.description ? ' - ' + l.description : ''), l.qty, l.total, l.date]);
     }
+    // Tabel transaksi DP per pelanggan: "Penerimaan DP – Nama" & "Realisasi DP – Nama"
+    function finDpRows_(tx, isRange) {
+      tx = tx || { penerimaan: [], realisasi: [] };
+      const mk = x => (isRange ? [x.date] : []).concat([x.label, x.outlet, x.amount]);
+      return { pen: (tx.penerimaan || []).map(mk), rea: (tx.realisasi || []).map(mk) };
+    }
+    function finDpTable_(tx, isRange) {
+      tx = tx || { penerimaan: [], realisasi: [], totalPenerimaan: 0, totalRealisasi: 0 };
+      const row = x => `<tr>${isRange ? `<td class="text-nowrap">${esc(x.date)}</td>` : ''}<td>${esc(x.label)}</td><td>${esc(x.outlet)}</td><td class="text-end">${fmtRp(x.amount)}</td></tr>`;
+      const cols = isRange ? 4 : 3;
+      let body = (tx.penerimaan || []).map(row).join('') + (tx.penerimaan.length ? `<tr class="fw-bold"><td colspan="${cols - 1}">Subtotal Penerimaan DP (menambah saldo uang muka, bukan omzet)</td><td class="text-end">${fmtRp(tx.totalPenerimaan)}</td></tr>` : '')
+        + (tx.realisasi || []).map(row).join('') + (tx.realisasi.length ? `<tr class="fw-bold"><td colspan="${cols - 1}">Subtotal Realisasi DP (mengurangi saldo uang muka)</td><td class="text-end">${fmtRp(tx.totalRealisasi)}</td></tr>` : '');
+      if (!body) body = `<tr><td colspan="${cols}" class="text-muted text-center">Tidak ada transaksi DP</td></tr>`;
+      return `
+        <h6 class="fw-bold mt-3">Transaksi DP per Pelanggan</h6>
+        <div class="table-responsive"><table class="table table-sm table-striped mb-1">
+          <thead><tr>${isRange ? '<th>Tanggal</th>' : ''}<th>Keterangan</th><th>Outlet</th><th class="text-end">Nominal</th></tr></thead>
+          <tbody>${body}</tbody></table></div>`;
+    }
+
     function finLainTable_(pl, isRange) {
       pl = pl || { lines: [], total: 0, totalQty: 0 };
       let rows = (pl.lines || []).map(l => `<tr>${isRange ? `<td class="text-nowrap">${esc(l.date)}</td>` : ''}<td>${esc(l.label)}${l.description ? ' <span class="text-muted">- ' + esc(l.description) + '</span>' : ''}</td><td class="text-end">${l.qty}</td><td class="text-end">${fmtRp(l.total)}</td></tr>`).join('')
@@ -7811,6 +7832,7 @@
           ${finUnitTable_('Pendapatan Kasir Loket Wahana', r.ride)}
           ${finUnitTable_('Pendapatan Kasir Resto', r.resto)}
           ${finLainTable_(r.pendapatanLain, r.isRange)}
+          ${finDpTable_(r.dpTx, r.isRange)}
           ${finCategoryTableSection_(r.categoryBreakdown)}
           ${finKasirTable_(r.kasirPenerimaan || { lines: [], totalTunai: 0, totalNonTunai: 0, totalJumlah: 0 })}
           <div class="p-3 border rounded mt-2" style="background:rgba(2,132,199,.06)">
@@ -7906,6 +7928,14 @@
       txt += `✅ *Pendapatan Kasir Loket Masuk*\n${prodLines(r.entrance)}\n\n`;
       txt += `✅ *Pendapatan Kasir Loket Wahana*\n${prodLines(r.ride)}\n\n`;
       txt += `✅ *Pendapatan Kasir Resto*\n${prodLines(r.resto)}\n\n`;
+      {
+        let dt = r.dpTx || { penerimaan: [], realisasi: [], totalPenerimaan: 0, totalRealisasi: 0 }, nf2 = v => Number(v || 0).toLocaleString('id-ID');
+        txt += `✅ *Transaksi DP*\n`;
+        if (!dt.penerimaan.length && !dt.realisasi.length) txt += `●\n`;
+        dt.penerimaan.forEach(x => { txt += `● ${x.label}${r.isRange ? ' (' + x.date + ')' : ''} = ${nf2(x.amount)}\n`; });
+        dt.realisasi.forEach(x => { txt += `● ${x.label}${r.isRange ? ' (' + x.date + ')' : ''} = ${nf2(x.amount)}\n`; });
+        txt += `*Total Penerimaan DP* = ${nf2(dt.totalPenerimaan)} | *Total Realisasi DP* = ${nf2(dt.totalRealisasi)}\n\n`;
+      }
       {
         let pl = r.pendapatanLain || { lines: [], total: 0 };
         txt += `✅ *Pendapatan Lainnya*\n`;
@@ -8005,6 +8035,7 @@
       if (fs.entrance) sections.push({ heading: 'Pendapatan Kasir Loket Masuk', headers: ['Produk','Harga','Qty','Total'], rows: finFilterZeroQty_(r.entrance.lines).map(l => [l.productName + (l.variant ? ' ('+l.variant+')' : ''), fmtRp(l.unitPrice), l.qty, fmtRp(l.total)]).concat([['SUBTOTAL', '', r.totalQtyEntrance, fmtRp(r.entrance.total)]]) });
       if (fs.ride) sections.push({ heading: 'Pendapatan Kasir Loket Wahana', headers: ['Produk','Harga','Qty','Total'], rows: finFilterZeroQty_(r.ride.lines).map(l => [l.productName + (l.variant ? ' ('+l.variant+')' : ''), fmtRp(l.unitPrice), l.qty, fmtRp(l.total)]).concat([['SUBTOTAL', '', r.totalQtyRide, fmtRp(r.ride.total)]]) });
       if (fs.resto) sections.push({ heading: 'Pendapatan Kasir Resto', headers: ['Produk','Harga','Qty','Total'], rows: finFilterZeroQty_(r.resto.lines).map(l => [l.productName + (l.variant ? ' ('+l.variant+')' : ''), fmtRp(l.unitPrice), l.qty, fmtRp(l.total)]).concat([['SUBTOTAL', '', r.totalQtyResto, fmtRp(r.resto.total)]]) });
+      if (fs.dp) { const _d = finDpRows_(r.dpTx, r.isRange), _dt = r.dpTx || {}; sections.push({ heading: 'Transaksi DP per Pelanggan', headers: r.isRange ? ['Tanggal','Keterangan','Outlet','Nominal'] : ['Keterangan','Outlet','Nominal'], rows: _d.pen.concat([(r.isRange ? ['', 'Subtotal Penerimaan DP (bukan omzet)', ''] : ['Subtotal Penerimaan DP (bukan omzet)', '']).concat([_dt.totalPenerimaan || 0])]).concat(_d.rea).concat([(r.isRange ? ['', 'Subtotal Realisasi DP', ''] : ['Subtotal Realisasi DP', '']).concat([_dt.totalRealisasi || 0])]).map(row => row.map(v => typeof v === 'number' ? fmtRp(v) : v)) }); }
       if (fs.lain) sections.push({ heading: 'Pendapatan Lainnya', headers: r.isRange ? ['Tanggal','Keterangan','Qty','Total'] : ['Keterangan','Qty','Total'], rows: (r.pendapatanLain ? r.pendapatanLain.lines : []).map(l => (r.isRange ? [l.date] : []).concat([l.label + (l.description ? ' - ' + l.description : ''), l.qty, fmtRp(l.total)])).concat([(r.isRange ? ['SUBTOTAL', ''] : ['SUBTOTAL']).concat([r.pendapatanLain ? r.pendapatanLain.totalQty : 0, fmtRp(r.pendapatanLain ? r.pendapatanLain.total : 0)])]) });
       if (fs.category) sections.push({ heading: 'Rekapan Pendapatan Per Kategori (Semua Outlet)', headers: ['Kategori','Qty','Total'], rows: (r.categoryBreakdown ? r.categoryBreakdown.lines : []).map(l => [l.category, l.qty, fmtRp(l.total)]).concat([['TOTAL', r.totalQtyKategori || 0, fmtRp(r.categoryBreakdown ? r.categoryBreakdown.total : 0)]]) });
       // Catatan: baris TOTAL untuk tabel "Total Penerimaan dari Kasir" ditulis
@@ -8129,6 +8160,7 @@
       if (fs.entrance) sheets.push({ name: 'Kasir Loket Masuk', headers: ['Produk','Varian','Harga','Qty','Total'], rows: finFilterZeroQty_(r.entrance.lines).map(l => [l.productName, l.variant, fmtRp(l.unitPrice), l.qty, fmtRp(l.total)]).concat([['', '', 'SUBTOTAL', r.totalQtyEntrance, fmtRp(r.entrance.total)]]) });
       if (fs.ride) sheets.push({ name: 'Kasir Loket Wahana', headers: ['Produk','Varian','Harga','Qty','Total'], rows: finFilterZeroQty_(r.ride.lines).map(l => [l.productName, l.variant, fmtRp(l.unitPrice), l.qty, fmtRp(l.total)]).concat([['', '', 'SUBTOTAL', r.totalQtyRide, fmtRp(r.ride.total)]]) });
       if (fs.resto) sheets.push({ name: 'Kasir Resto', headers: ['Produk','Varian','Harga','Qty','Total'], rows: finFilterZeroQty_(r.resto.lines).map(l => [l.productName, l.variant, fmtRp(l.unitPrice), l.qty, fmtRp(l.total)]).concat([['', '', 'SUBTOTAL', r.totalQtyResto, fmtRp(r.resto.total)]]) });
+      if (fs.dp) { const _d = finDpRows_(r.dpTx, false), _dt = r.dpTx || {}; sheets.push({ name: 'Transaksi DP', headers: ['Tanggal','Keterangan','Outlet','Nominal'], rows: (r.dpTx ? r.dpTx.penerimaan.concat(r.dpTx.realisasi) : []).map(x => [x.date, x.label, x.outlet, fmtRp(x.amount)]).concat([['', 'Subtotal Penerimaan DP', '', fmtRp(_dt.totalPenerimaan || 0)], ['', 'Subtotal Realisasi DP', '', fmtRp(_dt.totalRealisasi || 0)]]) }); }
       if (fs.lain) sheets.push({ name: 'Pendapatan Lainnya', headers: ['Tanggal','Jenis','Keterangan','Qty','Total'], rows: (r.pendapatanLain ? r.pendapatanLain.lines : []).map(l => [l.date, l.label, l.description || '', l.qty, fmtRp(l.total)]).concat([['', 'SUBTOTAL', '', r.pendapatanLain ? r.pendapatanLain.totalQty : 0, fmtRp(r.pendapatanLain ? r.pendapatanLain.total : 0)]]) });
       if (fs.category) sheets.push({ name: 'Kategori (Semua Outlet)', headers: ['Kategori','Qty','Total'], rows: (r.categoryBreakdown ? r.categoryBreakdown.lines : []).map(l => [l.category, l.qty, fmtRp(l.total)]).concat([['Total', r.totalQtyKategori || 0, fmtRp(r.categoryBreakdown ? r.categoryBreakdown.total : 0)]]) });
       if (fs.kasirPenerimaan) sheets.push({ name: 'Total Penerimaan Kasir', headers: ['Nama Kasir','Posisi','Total Uang Tunai','Total QRIS+Transfer+Debit+Kredit','Jumlah'], rows: (r.kasirPenerimaan ? r.kasirPenerimaan.lines : []).map(l => [l.cashierName, l.posisi, fmtRp(l.tunai), fmtRp(l.nonTunai), fmtRp(l.jumlah)]).concat([['Total', '', fmtRp(r.kasirPenerimaan ? r.kasirPenerimaan.totalTunai : 0), fmtRp(r.kasirPenerimaan ? r.kasirPenerimaan.totalNonTunai : 0), fmtRp(r.kasirPenerimaan ? r.kasirPenerimaan.totalJumlah : 0)]]) });
