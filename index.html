@@ -994,7 +994,7 @@
       // Kasir: judul & angka ringkasan mengikuti posisi outletnya sendiri
       // saja (tidak tercampur dengan outlet lain), tidak perlu widget
       // per-outlet terpisah yang isinya akan sama persis (duplikat).
-      const summaryTitle = isKasir ? ('Total Penjualan - ' + (UNIT_LABEL[myUnit] || '')) : 'Total Penjualan';
+      const summaryTitle = isKasir ? ('Total Penjualan Terealisasi - ' + (UNIT_LABEL[myUnit] || '')) : 'Total Penjualan Terealisasi';
 
       area.html(`
         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
@@ -1039,6 +1039,7 @@
                 <div><span class="me-1">Kartu Debit:</span><span id="m-penerimaan-debit" class="fw-semibold text-dark">Rp 0</span></div>
                 <div><span class="me-1">Kartu Kredit:</span><span id="m-penerimaan-kredit" class="fw-semibold text-dark">Rp 0</span></div>
               </div>
+              <div class="small text-muted mt-1">Sudah termasuk DP baru: <span id="m-penerimaan-dp" class="fw-semibold" style="color:#7c3aed">Rp 0</span> (uang muka, bukan omzet)</div>
             </div>
           </div>
           <div class="col-lg-4">
@@ -1054,12 +1055,16 @@
         <div class="row g-3 mb-4">
           <div class="col-lg-8">
             <div class="card p-3 shadow-sm metric-card h-100" style="border-left:4px solid #7c3aed;">
-              <h6 class="mb-1"><i class="fa-solid fa-sack-dollar me-1" style="color:#7c3aed"></i>Total Pendapatan <span class="small text-muted fw-normal">(Penjualan Kasir + Pendapatan Lainnya)</span></h6>
+              <h6 class="mb-1"><i class="fa-solid fa-sack-dollar me-1" style="color:#7c3aed"></i>Total Pendapatan <span class="small text-muted fw-normal">(Omzet Terealisasi + Pendapatan Lainnya, tanpa DP baru)</span></h6>
               <h4 id="m-gab-total" class="fw-bold mb-2" style="color:#7c3aed">Rp 0</h4>
               <div class="row g-2 small">
                 <div class="col-md-5">
-                  <div class="d-flex justify-content-between"><span class="text-muted">Penjualan Kasir (bersih)</span><span id="m-gab-sales" class="fw-semibold">Rp 0</span></div>
+                  <div class="d-flex justify-content-between"><span class="text-muted">Omzet Terealisasi (termasuk DP lama)</span><span id="m-gab-sales" class="fw-semibold">Rp 0</span></div>
                   <div class="d-flex justify-content-between"><span class="text-muted">Pendapatan Lainnya</span><span id="m-gab-lain" class="fw-semibold">Rp 0</span></div>
+                  <div class="d-flex justify-content-between border-top mt-1 pt-1"><span class="text-muted">DP lama dipakai <span class="small">(sudah dalam omzet)</span></span><span id="m-gab-dplama" class="fw-semibold">Rp 0</span></div>
+                  <div class="d-flex justify-content-between"><span class="text-muted">DP baru diterima <span class="small">(bukan omzet)</span></span><span id="m-gab-dpbaru" class="fw-semibold">Rp 0</span></div>
+                  <div class="d-flex justify-content-between"><span class="text-muted">Saldo DP pelanggan</span><span id="m-gab-dpsaldo" class="fw-semibold">Rp 0</span></div>
+                  <div class="d-flex justify-content-between border-top mt-1 pt-1"><span class="fw-semibold">Total Penerimaan Kas</span><span id="m-gab-kas" class="fw-bold">Rp 0</span></div>
                 </div>
                 <div class="col-md-7"><div class="text-muted mb-1">Rincian Pendapatan Lainnya</div><div id="m-gab-lain-list" class="border-start ps-2"><span class="text-muted">-</span></div></div>
               </div>
@@ -1951,6 +1956,7 @@
         $('#m-penerimaan-tf').text(fmtRp(res.metrics.totalTransfer));
         $('#m-penerimaan-debit').text(fmtRp(res.metrics.totalDebit));
         $('#m-penerimaan-kredit').text(fmtRp(res.metrics.totalKredit));
+        $('#m-penerimaan-dp').text(fmtRp(res.metrics.totalDpBaruKasir || 0));
 
         // Pie Chart Tunai vs Non Tunai (Non Tunai = QRIS + Transfer + Debit + Kredit)
         if (document.getElementById('db-chart-penerimaan-pie')) {
@@ -1993,6 +1999,11 @@
           $('#m-gab-total').text(fmtRp(res.finance.totalPendapatanGabungan));
           $('#m-gab-sales').text(fmtRp(res.metrics.totalSalesToday));
           $('#m-gab-lain').text(fmtRp(pl.total));
+          let dpf = res.finance.dp || {};
+          $('#m-gab-dplama').text(fmtRp(dpf.lama || 0));
+          $('#m-gab-dpbaru').text(fmtRp(dpf.baru || 0));
+          $('#m-gab-dpsaldo').text(fmtRp(dpf.saldo || 0));
+          $('#m-gab-kas').text(fmtRp(res.finance.totalPenerimaanKas || 0));
           $('#m-gab-lain-list').html((pl.byType || []).map(t => `<div class="d-flex justify-content-between"><span>${esc(t.label)} <span class="text-muted">(${t.count})</span></span><span class="fw-semibold">${fmtRp(t.total)}</span></div>`).join('') || '<span class="text-muted">Tidak ada pendapatan lainnya pada periode ini</span>');
           if (dbGabPie) dbGabPie.destroy();
           dbGabPie = new Chart(document.getElementById('db-chart-gab-pie'), {
@@ -6756,7 +6767,7 @@
       { key: 'kasirPenerimaan', label: 'Total Penjualan / Penerimaan per Kasir' },
       { key: 'expBrangkas', label: 'Total Pengeluaran dari Brangkas' },
       { key: 'expRekening', label: 'Total Pengeluaran dari Rekening PT' },
-      { key: 'ringkasan', label: 'Ringkasan Akhir (Total Pendapatan, Pengeluaran, Saldo Bersih, dll)' }
+      { key: 'ringkasan', label: 'Ringkasan Akhir (Omzet, Penerimaan Kas, Pengeluaran, Arus Kas Bersih, DP, dll)' }
     ];
     // Default: SEMUA aktif - sama persis seperti tampilan report yang sudah
     // ada saat ini, supaya tidak berubah kalau admin tidak mengubah apapun.
@@ -7803,12 +7814,13 @@
           ${finCategoryTableSection_(r.categoryBreakdown)}
           ${finKasirTable_(r.kasirPenerimaan || { lines: [], totalTunai: 0, totalNonTunai: 0, totalJumlah: 0 })}
           <div class="p-3 border rounded mt-2" style="background:rgba(2,132,199,.06)">
-            ${finRow_('Total Pendapatan Kotor', r.totalPendapatanKotor, { bold: true })}
-            ${finRow_('Total Pendapatan Lainnya (DP, Minus F&B, dll)', (r.pendapatanLain || {}).total || 0)}
-            ${finRow_('Penjualan Kotor (sebelum potongan)', (r.salesRecap || {}).kotor || 0)}
-            ${finRow_('Potongan/DP Dipakai', (r.salesRecap || {}).potonganDp || 0)}
-            ${finRow_('Potongan Lainnya', (r.salesRecap || {}).potonganLain || 0)}
-            ${finRow_('Penjualan Bersih', (r.salesRecap || {}).bersih || 0)}
+            ${finRow_('Omzet Terealisasi (Penjualan)', (r.salesRecap || {}).omzet || 0, { bold: true })}
+            ${finRow_('Dilunasi dengan DP Lama (bagian dari omzet)', (r.dpRecap || {}).dpLama || 0)}
+            ${finRow_('Diskon/Potongan Manual (mengurangi omzet)', (r.salesRecap || {}).potonganManual || 0)}
+            ${finRow_('Penerimaan Kasir (tunai + non tunai + pelunasan)', (r.dpRecap || {}).penerimaanKasirNonDp || 0, { border: true })}
+            ${finRow_('DP Baru Diterima (uang muka, bukan omzet)', (r.dpRecap || {}).dpBaru || 0)}
+            ${finRow_('Penerimaan Lainnya (Minus F&B, dll)', (r.dpRecap || {}).lainNonDp || 0)}
+            ${finRow_('Total Penerimaan Kas', r.totalPenerimaanKas || 0, { bold: true })}
           </div>
 
           <div class="p-3 border rounded mt-2">
@@ -7819,7 +7831,7 @@
           </div>
 
           <div class="p-3 border rounded mt-2">
-            ${finRow_('Total Pendapatan Bersih', r.totalPendapatanBersih, { bold: true })}
+            ${finRow_('Total Penerimaan Semua Kasir (termasuk DP baru)', r.totalPendapatanBersih, { bold: true })}
             ${finRow_('Total Penerimaan Uang Tunai Semua Kasir', r.totalCash)}
             ${finRow_('Total Penerimaan QRIS+Transfer+Debit+Kredit Semua Kasir', r.totalNonCash)}
           </div>
@@ -7843,7 +7855,8 @@
 
           <div class="p-3 border rounded mt-2" style="background:rgba(220,38,38,.06)">
             ${finRow_('Total Pengeluaran Seluruhnya', r.totalExpSeluruhnya, { bold: true })}
-            ${finRow_('Saldo Bersih', r.saldoBersih, { bold: true })}
+            ${finRow_('Arus Kas Bersih (Total Penerimaan Kas - Pengeluaran)', r.arusKasBersih, { bold: true })}
+            ${finRow_('Saldo DP Pelanggan (kewajiban uang muka)', (r.dpRecap || {}).saldoDp || 0)}
             ${finRow_('Saldo Akhir Brangkas', r.saldoAkhirBrangkas, { border: true })}
             ${finRow_('Saldo Akhir Rekening', r.saldoAkhirRekening)}
             ${finRow_('Total Saldo Akhir', r.saldoAkhirTotal, { bold: true })}
@@ -7863,7 +7876,7 @@
 
           <hr>
           <div class="small text-muted">
-            Total Pendapatan Bulan Ini (s/d ${fmtDate(r.endDateStr || r.dateStr)}): <strong>${fmtRp(r.omsetBulanIni)}</strong> &nbsp;·&nbsp;
+            Omzet Terealisasi Bulan Ini (s/d ${fmtDate(r.endDateStr || r.dateStr)}): <strong>${fmtRp(r.omsetBulanIni)}</strong> &nbsp;·&nbsp;
             Total Pengeluaran Bulan Ini: <strong>${fmtRp(r.pengeluaranBulanIni)}</strong>
           </div>
         </div>`;
@@ -7911,16 +7924,17 @@
         txt += r.kasirPenerimaan.lines.map(l => `● ${l.cashierName} (${l.posisi}) : Tunai ${Number(l.tunai).toLocaleString('id-ID')} + Non Tunai ${Number(l.nonTunai).toLocaleString('id-ID')} = ${Number(l.jumlah).toLocaleString('id-ID')}`).join('\n');
         txt += `\nTotal : Tunai ${Number(r.kasirPenerimaan.totalTunai).toLocaleString('id-ID')} + Non Tunai ${Number(r.kasirPenerimaan.totalNonTunai).toLocaleString('id-ID')} = ${Number(r.kasirPenerimaan.totalJumlah).toLocaleString('id-ID')}\n\n`;
       }
-      txt += `🟠 *Total Pendapatan Kotor* = ${Number(r.totalPendapatanKotor).toLocaleString('id-ID')}\n`;
-      txt += `🟣 *Total Pendapatan Lainnya* = ${Number((r.pendapatanLain || {}).total || 0).toLocaleString('id-ID')}\n`;
       {
-        const sr = r.salesRecap || {}, nf = v => Number(v || 0).toLocaleString('id-ID');
-        txt += `🧾 *Penjualan Kotor* = ${nf(sr.kotor)}\n`;
-        txt += `🔻 *Potongan/DP Dipakai* = ${nf(sr.potonganDp)}\n`;
-        if (Number(sr.potonganLain) > 0) txt += `🔻 *Potongan Lainnya* = ${nf(sr.potonganLain)}\n`;
-        txt += `🧾 *Penjualan Bersih* = ${nf(sr.bersih)}\n\n`;
+        const dr = r.dpRecap || {}, sr = r.salesRecap || {}, nf = v => Number(v || 0).toLocaleString('id-ID');
+        txt += `🧾 *Omzet Terealisasi (Penjualan)* = ${nf(sr.omzet)}\n`;
+        txt += `🔹 Dilunasi dengan DP lama = ${nf(dr.dpLama)}\n`;
+        if (Number(sr.potonganManual) > 0) txt += `🔻 Diskon/Potongan manual = ${nf(sr.potonganManual)}\n`;
+        txt += `🟠 Penerimaan Kasir (tunai + non tunai + pelunasan) = ${nf(dr.penerimaanKasirNonDp)}\n`;
+        txt += `🟣 DP Baru Diterima (bukan omzet) = ${nf(dr.dpBaru)}\n`;
+        if (Number(dr.lainNonDp) > 0) txt += `🟣 Penerimaan Lainnya = ${nf(dr.lainNonDp)}\n`;
+        txt += `🟢 *Total Penerimaan Kas* = ${nf(r.totalPenerimaanKas)}\n\n`;
       }
-      txt += `🟢 *Total Pendapatan Bersih*  = ${Number(r.totalPendapatanBersih).toLocaleString('id-ID')}\n`;
+      txt += `🟢 *Total Penerimaan Semua Kasir (termasuk DP baru)* = ${Number(r.totalPendapatanBersih).toLocaleString('id-ID')}\n`;
       txt += `💰 Total Penerimaan Uang Tunai Semua Kasir = ${Number(r.totalCash).toLocaleString('id-ID')}\n`;
       txt += `💳 Total Penerimaan QRIS+Transfer+Debit+Kredit Semua Kasir = ${Number(r.totalNonCash).toLocaleString('id-ID')}\n\n`;
       txt += `🟨 Pengeluaran dari Brankas\n${expLines(r.expBrangkas)}\n`;
@@ -7928,7 +7942,8 @@
       txt += `🟦 Pengeluaran dari Rekening PT\n${expLines(r.expRekening)}\n`;
       txt += `🟦 *Total Pengeluaran Rekening PT* = Rp ${Number(r.totalExpRekening).toLocaleString('id-ID')}\n\n`;
       txt += `🟫 *Total Pengeluaran Seluruhnya* = Rp ${Number(r.totalExpSeluruhnya).toLocaleString('id-ID')}\n\n`;
-      txt += `🟢 *Saldo Bersih* = Rp ${Number(r.saldoBersih).toLocaleString('id-ID')}\n\n`;
+      txt += `🟢 *Arus Kas Bersih* = Rp ${Number(r.arusKasBersih).toLocaleString('id-ID')}\n`;
+      txt += `🔖 Saldo DP Pelanggan = Rp ${Number((r.dpRecap || {}).saldoDp || 0).toLocaleString('id-ID')}\n\n`;
       txt += `🔰 *SALDO AKHIR* = ${Number(r.saldoAkhirTotal).toLocaleString('id-ID')}\n`;
       txt += `💰 Brangkas : ${Number(r.saldoAkhirBrangkas).toLocaleString('id-ID')}\n`;
       txt += `💳 Rekening : ${Number(r.saldoAkhirRekening).toLocaleString('id-ID')}\n`;
@@ -7937,7 +7952,7 @@
       if (r.piutang && r.piutang.length) txt += `📌 *PIUTANG*\n${r.piutang.map(h => '● ' + h.name + ' = ' + Number(h.amount).toLocaleString('id-ID')).join('\n')}\n\n`;
       if (r.catatanTambahan) txt += `📝 *CATATAN*\n${r.catatanTambahan}\n\n`;
       txt += `📌  *NOTE*\n`;
-      txt += `Total Pendapatan Bulan Ini = ${Number(r.omsetBulanIni).toLocaleString('id-ID')}\n`;
+      txt += `Omzet Terealisasi Bulan Ini = ${Number(r.omsetBulanIni).toLocaleString('id-ID')}\n`;
       txt += `Total Pengeluaran Bulan Ini = ${Number(r.pengeluaranBulanIni).toLocaleString('id-ID')}`;
       return txt;
     }
@@ -8005,24 +8020,26 @@
         ['Saldo Awal Brangkas', fmtRp(r.saldoAwalBrangkas)],
         ['Saldo Awal Rekening', fmtRp(r.saldoAwalRekening)],
         ['Total Saldo Awal', fmtRp(r.saldoAwalTotal)],
-        ['Total Pendapatan Kotor', fmtRp(r.totalPendapatanKotor)],
-          ['Total Pendapatan Lainnya (DP, Minus F&B, dll)', fmtRp(r.pendapatanLain ? r.pendapatanLain.total : 0)],
-          ['Penjualan Kotor (sebelum potongan)', fmtRp((r.salesRecap || {}).kotor || 0)],
-          ['Potongan/DP Dipakai', fmtRp((r.salesRecap || {}).potonganDp || 0)],
-          ['Potongan Lainnya', fmtRp((r.salesRecap || {}).potonganLain || 0)],
-          ['Penjualan Bersih', fmtRp((r.salesRecap || {}).bersih || 0)],
-        ['Total Pendapatan Bersih', fmtRp(r.totalPendapatanBersih)],
+        ['Omzet Terealisasi (Penjualan)', fmtRp((r.salesRecap || {}).omzet || 0)],
+        ['Dilunasi dengan DP Lama (bagian dari omzet)', fmtRp((r.dpRecap || {}).dpLama || 0)],
+        ['Diskon/Potongan Manual (mengurangi omzet)', fmtRp((r.salesRecap || {}).potonganManual || 0)],
+        ['Penerimaan Kasir (tunai + non tunai + pelunasan)', fmtRp((r.dpRecap || {}).penerimaanKasirNonDp || 0)],
+        ['DP Baru Diterima (uang muka, bukan omzet)', fmtRp((r.dpRecap || {}).dpBaru || 0)],
+        ['Penerimaan Lainnya (Minus F&B, dll)', fmtRp((r.dpRecap || {}).lainNonDp || 0)],
+        ['Total Penerimaan Kas', fmtRp(r.totalPenerimaanKas || 0)],
+        ['Total Penerimaan Semua Kasir (termasuk DP baru)', fmtRp(r.totalPendapatanBersih)],
         ['Total Penerimaan Uang Tunai Semua Kasir', fmtRp(r.totalCash)],
         ['Total Penerimaan QRIS+Transfer+Debit+Kredit Semua Kasir', fmtRp(r.totalNonCash)],
         ['Total Pengeluaran Brangkas', fmtRp(r.totalExpBrangkas)],
         ['Total Pengeluaran Rekening', fmtRp(r.totalExpRekening)],
         ['Total Pengeluaran Seluruhnya', fmtRp(r.totalExpSeluruhnya)],
-        ['Saldo Bersih', fmtRp(r.saldoBersih)],
+        ['Arus Kas Bersih (Total Penerimaan Kas - Pengeluaran)', fmtRp(r.arusKasBersih)],
+        ['Saldo DP Pelanggan (kewajiban uang muka)', fmtRp((r.dpRecap || {}).saldoDp || 0)],
         ['Saldo Akhir Brangkas', fmtRp(r.saldoAkhirBrangkas)],
         ['Saldo Akhir Rekening', fmtRp(r.saldoAkhirRekening)],
         ['Total Saldo Akhir', fmtRp(r.saldoAkhirTotal)],
         ['Saldo THR di Rekening', fmtRp(r.saldoTHR)],
-        ['Total Pendapatan Bulan Ini', fmtRp(r.omsetBulanIni)],
+        ['Omzet Terealisasi Bulan Ini', fmtRp(r.omsetBulanIni)],
         ['Total Pengeluaran Bulan Ini', fmtRp(r.pengeluaranBulanIni)]
       ] });
       return sections;
@@ -8063,24 +8080,26 @@
           ['Subtotal Qty Kasir Loket Wahana', r.totalQtyRide || 0],
           ['Subtotal Qty Kasir Resto', r.totalQtyResto || 0],
           ['Total Qty Rekapan Pendapatan Per Kategori', r.totalQtyKategori || 0],
-          ['Total Pendapatan Kotor', fmtRp(r.totalPendapatanKotor)],
-          ['Total Pendapatan Lainnya (DP, Minus F&B, dll)', fmtRp(r.pendapatanLain ? r.pendapatanLain.total : 0)],
-          ['Penjualan Kotor (sebelum potongan)', fmtRp((r.salesRecap || {}).kotor || 0)],
-          ['Potongan/DP Dipakai', fmtRp((r.salesRecap || {}).potonganDp || 0)],
-          ['Potongan Lainnya', fmtRp((r.salesRecap || {}).potonganLain || 0)],
-          ['Penjualan Bersih', fmtRp((r.salesRecap || {}).bersih || 0)],
-          ['Total Pendapatan Bersih', fmtRp(r.totalPendapatanBersih)],
+          ['Omzet Terealisasi (Penjualan)', fmtRp((r.salesRecap || {}).omzet || 0)],
+          ['Dilunasi dengan DP Lama (bagian dari omzet)', fmtRp((r.dpRecap || {}).dpLama || 0)],
+          ['Diskon/Potongan Manual (mengurangi omzet)', fmtRp((r.salesRecap || {}).potonganManual || 0)],
+          ['Penerimaan Kasir (tunai + non tunai + pelunasan)', fmtRp((r.dpRecap || {}).penerimaanKasirNonDp || 0)],
+          ['DP Baru Diterima (uang muka, bukan omzet)', fmtRp((r.dpRecap || {}).dpBaru || 0)],
+          ['Penerimaan Lainnya (Minus F&B, dll)', fmtRp((r.dpRecap || {}).lainNonDp || 0)],
+          ['Total Penerimaan Kas', fmtRp(r.totalPenerimaanKas || 0)],
+          ['Total Penerimaan Semua Kasir (termasuk DP baru)', fmtRp(r.totalPendapatanBersih)],
           ['Total Penerimaan Uang Tunai Semua Kasir', fmtRp(r.totalCash)],
           ['Total Penerimaan QRIS+Transfer+Debit+Kredit Semua Kasir', fmtRp(r.totalNonCash)],
           ['Total Pengeluaran Brangkas', fmtRp(r.totalExpBrangkas)],
           ['Total Pengeluaran Rekening', fmtRp(r.totalExpRekening)],
           ['Total Pengeluaran Seluruhnya', fmtRp(r.totalExpSeluruhnya)],
-          ['Saldo Bersih', fmtRp(r.saldoBersih)],
+          ['Arus Kas Bersih (Total Penerimaan Kas - Pengeluaran)', fmtRp(r.arusKasBersih)],
+        ['Saldo DP Pelanggan (kewajiban uang muka)', fmtRp((r.dpRecap || {}).saldoDp || 0)],
           ['Saldo Akhir Brangkas', fmtRp(r.saldoAkhirBrangkas)],
           ['Saldo Akhir Rekening', fmtRp(r.saldoAkhirRekening)],
           ['Total Saldo Akhir', fmtRp(r.saldoAkhirTotal)],
           ['Saldo THR di Rekening', fmtRp(r.saldoTHR)],
-          ['Total Pendapatan Bulan Ini', fmtRp(r.omsetBulanIni)],
+          ['Omzet Terealisasi Bulan Ini', fmtRp(r.omsetBulanIni)],
           ['Total Pengeluaran Bulan Ini', fmtRp(r.pengeluaranBulanIni)]
         ];
       } else if (fs.saldo) {
