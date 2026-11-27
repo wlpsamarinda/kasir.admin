@@ -7673,6 +7673,13 @@
       }).withFailureHandler(errHandler).getFinanceDailyReport(st.start, sessionToken, st.end);
     }
 
+    // Deteksi Code.gs lama (belum ada rincian tunai/non-tunai & saldo DP) -> beri peringatan, bukan diam-diam Rp0.
+    function finStaleServerWarn_(r) {
+      const d = (r && r.dpRecap) || {};
+      if (d.kasirCashNonDp === undefined || d.saldoAwalDp === undefined) {
+        try { Swal.fire({ icon: 'warning', title: 'Code.gs belum diperbarui', text: 'Rincian tunai/non-tunai & Saldo DP butuh Code.gs terbaru. Tempel Code.gs di Apps Script lalu Deploy > New version.' }); } catch (e) {}
+      }
+    }
     function finRow_(label, value, opts) {
       opts = opts || {};
       return `<div class="d-flex justify-content-between py-1 ${opts.bold ? 'fw-bold' : ''} ${opts.border ? 'border-top pt-2 mt-1' : ''}"><span>${esc(label)}</span><span>${fmtRp(value)}</span></div>`;
@@ -7849,6 +7856,7 @@
           ${finUnitTable_('Pendapatan Kasir Resto', r.resto)}
           ${finLainTable_(r.pendapatanLain, r.isRange)}
           ${finDpTable_(r.dpTx, r.isRange)}
+          ${(finStaleServerWarn_(r), '')}
           ${finCategoryTableSection_(r.categoryBreakdown)}
           ${finKasirTable_(r.kasirPenerimaan || { lines: [], totalTunai: 0, totalNonTunai: 0, totalJumlah: 0 })}
           <div class="p-3 border rounded mt-2" style="background:rgba(2,132,199,.06)">
@@ -7894,7 +7902,11 @@
           <div class="p-3 border rounded mt-2" style="background:rgba(220,38,38,.06)">
             ${finRow_('Total Pengeluaran Seluruhnya', r.totalExpSeluruhnya, { bold: true })}
             ${finRow_('Arus Kas Bersih (Total Penerimaan Kas - Pengeluaran)', r.arusKasBersih, { bold: true })}
-            ${finRow_('Saldo DP Pelanggan (kewajiban uang muka)', (r.dpRecap || {}).saldoDp || 0)}
+            ${finRow_('Saldo Awal DP Pelanggan', (r.dpRecap || {}).saldoAwalDp || 0, { border: true })}
+            ${finRow_('Penerimaan DP Pelanggan', (r.dpRecap || {}).dpBaru || 0)}
+            ${finRow_('Realisasi DP Pelanggan', (r.dpRecap || {}).dpLama || 0)}
+            ${finRow_('Refund DP Pelanggan', (r.dpRecap || {}).dpRefund || 0)}
+            ${finRow_('Saldo Akhir DP Pelanggan (Awal + Penerimaan - Realisasi - Refund)', (r.dpRecap || {}).saldoDp || 0, { bold: true })}
             ${finRow_('Saldo Akhir Brangkas', r.saldoAkhirBrangkas, { border: true })}
             ${finRow_('Saldo Akhir Rekening', r.saldoAkhirRekening)}
             ${finRow_('Total Saldo Akhir', r.saldoAkhirTotal, { bold: true })}
@@ -7989,7 +8001,8 @@
       txt += `🟦 *Total Pengeluaran Rekening PT* = Rp ${Number(r.totalExpRekening).toLocaleString('id-ID')}\n\n`;
       txt += `🟫 *Total Pengeluaran Seluruhnya* = Rp ${Number(r.totalExpSeluruhnya).toLocaleString('id-ID')}\n\n`;
       txt += `🟢 *Arus Kas Bersih* = Rp ${Number(r.arusKasBersih).toLocaleString('id-ID')}\n`;
-      txt += `🔖 Saldo DP Pelanggan = Rp ${Number((r.dpRecap || {}).saldoDp || 0).toLocaleString('id-ID')}\n\n`;
+      { const dq = r.dpRecap || {}, nfd = v => Number(v || 0).toLocaleString('id-ID');
+        txt += `🔖 *Saldo DP Pelanggan*\nSaldo Awal DP = Rp ${nfd(dq.saldoAwalDp)}\nPenerimaan DP = Rp ${nfd(dq.dpBaru)}\nRealisasi DP = Rp ${nfd(dq.dpLama)}\nRefund DP = Rp ${nfd(dq.dpRefund)}\nSaldo Akhir DP = Rp ${nfd(dq.saldoDp)}\n\n`; }
       txt += `🔰 *SALDO AKHIR* = ${Number(r.saldoAkhirTotal).toLocaleString('id-ID')}\n`;
       txt += `💰 Brangkas : ${Number(r.saldoAkhirBrangkas).toLocaleString('id-ID')}\n`;
       txt += `💳 Rekening : ${Number(r.saldoAkhirRekening).toLocaleString('id-ID')}\n`;
@@ -8081,7 +8094,11 @@
         ['Total Pengeluaran Rekening', fmtRp(r.totalExpRekening)],
         ['Total Pengeluaran Seluruhnya', fmtRp(r.totalExpSeluruhnya)],
         ['Arus Kas Bersih (Total Penerimaan Kas - Pengeluaran)', fmtRp(r.arusKasBersih)],
-        ['Saldo DP Pelanggan (kewajiban uang muka)', fmtRp((r.dpRecap || {}).saldoDp || 0)],
+        ['Saldo Awal DP Pelanggan', fmtRp((r.dpRecap || {}).saldoAwalDp || 0)],
+        ['Penerimaan DP Pelanggan', fmtRp((r.dpRecap || {}).dpBaru || 0)],
+        ['Realisasi DP Pelanggan', fmtRp((r.dpRecap || {}).dpLama || 0)],
+        ['Refund DP Pelanggan', fmtRp((r.dpRecap || {}).dpRefund || 0)],
+        ['Saldo Akhir DP Pelanggan', fmtRp((r.dpRecap || {}).saldoDp || 0)],
         ['Saldo Akhir Brangkas', fmtRp(r.saldoAkhirBrangkas)],
         ['Saldo Akhir Rekening', fmtRp(r.saldoAkhirRekening)],
         ['Total Saldo Akhir', fmtRp(r.saldoAkhirTotal)],
@@ -8141,7 +8158,11 @@
           ['Total Pengeluaran Rekening', fmtRp(r.totalExpRekening)],
           ['Total Pengeluaran Seluruhnya', fmtRp(r.totalExpSeluruhnya)],
           ['Arus Kas Bersih (Total Penerimaan Kas - Pengeluaran)', fmtRp(r.arusKasBersih)],
-        ['Saldo DP Pelanggan (kewajiban uang muka)', fmtRp((r.dpRecap || {}).saldoDp || 0)],
+        ['Saldo Awal DP Pelanggan', fmtRp((r.dpRecap || {}).saldoAwalDp || 0)],
+        ['Penerimaan DP Pelanggan', fmtRp((r.dpRecap || {}).dpBaru || 0)],
+        ['Realisasi DP Pelanggan', fmtRp((r.dpRecap || {}).dpLama || 0)],
+        ['Refund DP Pelanggan', fmtRp((r.dpRecap || {}).dpRefund || 0)],
+        ['Saldo Akhir DP Pelanggan', fmtRp((r.dpRecap || {}).saldoDp || 0)],
           ['Saldo Akhir Brangkas', fmtRp(r.saldoAkhirBrangkas)],
           ['Saldo Akhir Rekening', fmtRp(r.saldoAkhirRekening)],
           ['Total Saldo Akhir', fmtRp(r.saldoAkhirTotal)],
