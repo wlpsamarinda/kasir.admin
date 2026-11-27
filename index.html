@@ -6779,19 +6779,34 @@
     // Pendapatan Kasir Loket Masuk/Wahana/Resto pada PDF/XLSX - supaya isi
     // laporan tidak terlalu panjang & boros kertas kalau Master Produk-nya
     // banyak. Default: OFF (tampilkan semua produk, sama seperti sebelumnya).
-    financeReportSections.hideZeroQty = false;
+    financeReportSections.hideZeroQty = true;
     // PERBAIKAN: opsi terpisah khusus untuk Laporan WA (tombol "Salin Format
     // WA") - menyembunyikan baris produk Qty 0 di teks WA (Pendapatan Kasir
     // Loket Masuk/Wahana/Resto). Sengaja dibuat toggle TERPISAH dari
     // hideZeroQty (yang untuk PDF/XLSX) supaya admin bisa atur masing-masing
     // format laporan secara independen. Total/subtotal Qty di teks WA tetap
     // dihitung dari SEMUA data (tidak terpengaruh toggle ini). Default: OFF.
-    financeReportSections.hideZeroQtyWa = false;
+    financeReportSections.hideZeroQtyWa = true;
     // PERBAIKAN: ukuran kertas PDF yang bisa diatur - A4 Landscape (default,
     // sama seperti sebelumnya) atau A4 Potrait (lebih hemat kertas/jumlah
     // halaman untuk laporan yang tabelnya tidak terlalu banyak kolom).
     // Dipakai bareng oleh Report Admin Keuangan & Report Semua Kasir.
-    financeReportSections.orientation = 'landscape';
+    financeReportSections.orientation = 'portrait';
+    // DEFAULT format yang paling sering dipakai: tanpa Grafik, semua bagian lain aktif,
+    // sembunyikan produk Qty 0 (PDF/XLSX & WA), kertas A4 Potrait.
+    financeReportSections.chart = false;
+    // Pilihan "Atur Isi Laporan" diingat per perangkat/browser (localStorage), jadi tidak
+    // perlu diatur ulang tiap buka aplikasi. Kalau belum pernah disimpan, pakai default di atas.
+    const FIN_REPORT_PREF_KEY_ = 'wlpFinReportSections_v2';
+    try {
+      const saved = JSON.parse(localStorage.getItem(FIN_REPORT_PREF_KEY_) || 'null');
+      if (saved && typeof saved === 'object') {
+        FIN_REPORT_SECTION_DEFS.forEach(d => { if (typeof saved[d.key] === 'boolean') financeReportSections[d.key] = saved[d.key]; });
+        if (typeof saved.hideZeroQty === 'boolean') financeReportSections.hideZeroQty = saved.hideZeroQty;
+        if (typeof saved.hideZeroQtyWa === 'boolean') financeReportSections.hideZeroQtyWa = saved.hideZeroQtyWa;
+        if (saved.orientation === 'portrait' || saved.orientation === 'landscape') financeReportSections.orientation = saved.orientation;
+      }
+    } catch (e) {}
 
     // Hilangkan baris produk dengan Qty 0 dari sebuah daftar `lines`, HANYA
     // kalau opsi "Sembunyikan produk tanpa penjualan" aktif. Dipakai bareng
@@ -6861,6 +6876,7 @@
           financeReportSections.hideZeroQty = !!result.value.hideZeroQty;
           financeReportSections.hideZeroQtyWa = !!result.value.hideZeroQtyWa;
           financeReportSections.orientation = result.value.orientation === 'portrait' ? 'portrait' : 'landscape';
+          try { localStorage.setItem(FIN_REPORT_PREF_KEY_, JSON.stringify(financeReportSections)); } catch (e) {}
           Toast.fire({ icon: 'success', title: 'Pengaturan isi laporan disimpan' });
         }
       });
